@@ -6,26 +6,32 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .arena import TubeArena
 from .bots import make_bots
 from .controllers import Controller
+from .scenarios import Scenario
 from .simulator import Simulator
-from .task import ReachTargetTask
 
 
-def run_episode(controller: Controller, seed: int, steps: int = 600,
+def build_obs(task, sim: Simulator, progress: float) -> np.ndarray:
+    """Task summary + [progress, sin(heartbeat), cos(heartbeat)]."""
+    s, c = sim.arena.pulse_phase(sim.t)
+    return np.concatenate([task.observe(sim.pos), [progress, s, c]])
+
+
+def run_episode(controller: Controller, seed: int, scenario: Scenario,
                 n_bots: int = 300, spread: float = 0.15, noise: float = 0.02,
-                arena: TubeArena | None = None) -> float:
+                steps: int | None = None) -> float:
     """One episode on a freshly randomized swarm. Returns the score (0 to 1)."""
     rng = np.random.default_rng(seed)
-    arena = arena or TubeArena()
-    bots = make_bots(rng, n=n_bots, spread=spread, start_center=(0.5, 0.0))
+    arena = scenario.make_arena()
+    task = scenario.make_task(arena)
+    bots = make_bots(rng, n=n_bots, spread=spread, start_center=scenario.start_center)
     sim = Simulator(arena, bots, rng, noise=noise)
-    task = ReachTargetTask(target_x=arena.length - 1.0)
-    for _ in range(steps):
-        field = controller.act(task.observe(sim.pos), rng)
+    steps = steps or scenario.steps
+    for i in range(steps):
+        field = controller.act(build_obs(task, sim, i / steps), rng)
         sim.step(field)
-    return task.fraction_reached(sim.pos)
+    return task.score(sim.pos)
 
 
 @dataclass
@@ -35,10 +41,10 @@ class Result:
     scores: np.ndarray
 
 
-def evaluate(controller: Controller, n_episodes: int = 50, base_seed: int = 1000,
-             **kwargs) -> Result:
+def evaluate(controller: Controller, scenario: Scenario, n_episodes: int = 50,
+             base_seed: int = 1000, **kwargs) -> Result:
     """Mean score with a 95% confidence interval over n_episodes random swarms."""
-    scores = np.array([run_episode(controller, base_seed + i, **kwargs)
+    scores = np.array([run_episode(controller, base_seed + i, scenario, **kwargs)
                        for i in range(n_episodes)])
     ci = 1.96 * scores.std(ddof=1) / np.sqrt(n_episodes)
     return Result(mean=float(scores.mean()), ci95=float(ci), scores=scores)

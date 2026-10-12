@@ -16,6 +16,7 @@ class Simulator:
         self.rng = rng
         self.dt = dt
         self.noise = noise
+        self.t = 0.0
         self.bots.pos = self.arena.contain(self.bots.pos)
 
     @property
@@ -26,11 +27,12 @@ class Simulator:
         """Advance one time step.
 
         field: the single control signal, a 2D vector (length <= 1).
-        Each bot moves by its own reaction to the field, plus the fluid flow,
-        plus a little random jitter (Brownian motion).
+        Each bot moves by its own push (reaction x field, reduced by wall drag),
+        plus the fluid flow at this moment, plus random jitter (Brownian motion).
         """
         field = np.asarray(field, dtype=float)
-        vel = self.bots.speed_factor[:, None] * field[None, :]
-        vel = vel + self.arena.flow_at(self.bots.pos)
+        push = self.bots.speed_factor * self.arena.drag_factor_at(self.bots.pos)
+        vel = push[:, None] * field[None, :] + self.arena.flow_at(self.bots.pos, self.t)
         jitter = self.rng.normal(0.0, self.noise, self.bots.pos.shape)
         self.bots.pos = self.arena.contain(self.bots.pos + vel * self.dt + jitter)
+        self.t += self.dt

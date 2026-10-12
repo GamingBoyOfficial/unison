@@ -1,4 +1,7 @@
-"""Steer the swarm through a tube with flow, by hand.
+"""Steer the swarm by hand in any scenario.
+
+  python experiments/play.py          # the Y-branch split task
+  python experiments/play.py tube     # the straight tube
 
 Controls (click the plot window first):
   Arrow keys or W/A/S/D : set the field direction (hold to keep pushing)
@@ -6,48 +9,58 @@ Controls (click the plot window first):
   Q                     : quit
 """
 
+import sys
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
+from matplotlib.patches import Rectangle
 
-from unison.arena import TubeArena
 from unison.bots import make_bots
+from unison.scenarios import SCENARIOS
 from unison.simulator import Simulator
-from unison.task import ReachTargetTask
 
 KEY_DIRS = {"up": (0, 1), "w": (0, 1), "down": (0, -1), "s": (0, -1),
             "left": (-1, 0), "a": (-1, 0), "right": (1, 0), "d": (1, 0)}
 
 
 def main():
+    name = sys.argv[1] if len(sys.argv) > 1 else "split"
+    if name not in SCENARIOS:
+        raise SystemExit(f"Unknown scenario '{name}'. Choose from: {', '.join(SCENARIOS)}")
+    scenario = SCENARIOS[name]()
+
     for k in [k for k in plt.rcParams if k.startswith("keymap.")]:
         plt.rcParams[k] = []
 
-    arena = TubeArena()
+    arena = scenario.make_arena()
+    task = scenario.make_task(arena)
     rng = np.random.default_rng(7)
-    task = ReachTargetTask(target_x=arena.length - 1.0)
     state = {"sim": None, "held": set()}
 
     def new_sim():
-        bots = make_bots(rng, start_center=(0.5, 0.0))
+        bots = make_bots(rng, start_center=scenario.start_center)
         state["sim"] = Simulator(arena, bots, rng)
 
     new_sim()
     xmin, xmax, ymin, ymax = arena.bounds
-    fig, ax = plt.subplots(figsize=(11, 4))
-    ax.set_xlim(xmin - 0.2, xmax + 0.2)
-    ax.set_ylim(ymin - 0.3, ymax + 0.3)
+    fig, ax = plt.subplots(figsize=(11, 5))
+    ax.set_xlim(xmin - 0.3, xmax + 0.3)
+    ax.set_ylim(ymin - 0.4, ymax + 0.4)
     ax.set_aspect("equal")
-    ax.set_facecolor("#0e1116")
-    ax.axhline(ymin, color="#8b93a1")
-    ax.axhline(ymax, color="#8b93a1")
-    ax.axvspan(task.target_x, xmax, color="#1D9E75", alpha=0.25)
-    ax.text(task.target_x + 0.1, ymax - 0.2, "target", color="#5DCAA5")
-    ax.annotate("flow", xy=(1.5, 0.75), xytext=(3.2, 0.75), color="#EF9F27",
+    ax.set_facecolor("#05070a")
+    for (x0, x1, y0, y1) in arena.shapes():
+        ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, facecolor="#161b22",
+                               edgecolor="#8b93a1", zorder=0))
+    for (x0, x1, y0, y1) in task.target_regions():
+        x1 = min(x1, xmax)
+        ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, facecolor="#1D9E75",
+                               alpha=0.3, zorder=1))
+    ax.annotate("flow", xy=(0.8, ymax - 0.3), xytext=(2.6, ymax - 0.3), color="#EF9F27",
                 arrowprops=dict(arrowstyle="->", color="#EF9F27"), va="center")
     sim = state["sim"]
     scat = ax.scatter(sim.pos[:, 0], sim.pos[:, 1], c=sim.bots.speed_factor,
-                      cmap="cool", s=12, vmin=0.7, vmax=1.3)
+                      cmap="cool", s=10, vmin=0.7, vmax=1.3, zorder=2)
     title = ax.set_title("")
 
     def field_now():
@@ -70,7 +83,7 @@ def main():
         s = state["sim"]
         s.step(field_now())
         scat.set_offsets(s.pos)
-        title.set_text(f"Reached target: {task.fraction_reached(s.pos) * 100:.0f}% of bots")
+        title.set_text(task.status(s.pos))
         return scat, title
 
     fig.canvas.mpl_connect("key_press_event", on_press)
