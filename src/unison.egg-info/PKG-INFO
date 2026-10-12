@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: unison
+Version: 0.2.0
+Summary: Learning to steer imperfect microrobot swarms with one global field.
+Requires-Python: >=3.10
+Requires-Dist: numpy
+Requires-Dist: matplotlib
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
