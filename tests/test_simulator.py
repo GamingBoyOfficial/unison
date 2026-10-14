@@ -89,3 +89,16 @@ def test_split_episode_runs_and_scores_between_0_and_1():
     s = split_scenario()
     score = run_episode(PushTowardTarget(), seed=2, scenario=s, steps=200)
     assert 0.0 <= score <= 1.0
+
+
+def test_committed_fractions_sum_to_one():
+    task = SplitTask(target_x=11.0)
+    pos = np.array([[1.0, 0.0], [7.0, 1.0], [8.0, -1.0], [9.0, 1.5]])
+    main, up, low = task.committed(pos)
+    assert abs(main + up + low - 1.0) < 1e-12
+    assert (main, up, low) == (0.25, 0.5, 0.25)
+
+
+def test_split_long_scenario_has_a_longer_time_budget():
+    from unison.scenarios import SCENARIOS
+    assert SCENARIOS["split_long"]().steps == 2 * SCENARIOS["split"]().steps

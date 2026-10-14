@@ -1,15 +1,25 @@
-"""Steer the swarm by hand in any scenario.
+"""Steer the swarm by hand, or hand the wheel to an autopilot.
 
   python experiments/play.py          # the Y-branch split task
+  python experiments/play.py split_long   # same, with a 1600-step time budget
   python experiments/play.py tube     # the straight tube
 
 Controls (click the plot window first):
   Arrow keys or W/A/S/D : set the field direction (hold to keep pushing)
-  R                     : reset
+  C                     : cycle the driver: Manual -> autopilot(s) -> Manual
+  R                     : start a new episode on a fresh random swarm
   Q                     : quit
+
+Each episode lasts a fixed number of steps, exactly like the scored evaluation.
+When it ends, the final score is shown. If one driver controlled the WHOLE episode,
+the result is appended to results/play_scores.csv, and a manual run's key presses
+are saved to results/actions_<scenario>_<seed>.csv so it can be replayed exactly.
+Run  python experiments/summarize_play.py  to get mean +/- 95% CI per driver.
 """
 
+import csv
 import sys
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,11 +27,25 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Rectangle
 
 from unison.bots import make_bots
+from unison.controllers import PushTowardTarget, SwitchController, WallHugging
+from unison.evaluate import build_obs
 from unison.scenarios import SCENARIOS
 from unison.simulator import Simulator
 
+RESULTS = Path("results")
+SEED_BASE = 5000          # play episodes use their own seeds, apart from evaluation
+
 KEY_DIRS = {"up": (0, 1), "w": (0, 1), "down": (0, -1), "s": (0, -1),
             "left": (-1, 0), "a": (-1, 0), "right": (1, 0), "d": (1, 0)}
+
+AUTOPILOTS = {
+    "split": [("Push toward target", PushTowardTarget()),
+              ("Switch (0.4)", SwitchController(0.4))],
+    "split_long": [("Push toward target", PushTowardTarget())],
+    "tube": [("Push toward target", PushTowardTarget()),
+             ("Wall-hugging", WallHugging())],
+}
+# A trained AI will be added to this list in a later phase.
 
 
 def main():
@@ -29,22 +53,27 @@ def main():
     if name not in SCENARIOS:
         raise SystemExit(f"Unknown scenario '{name}'. Choose from: {', '.join(SCENARIOS)}")
     scenario = SCENARIOS[name]()
+    drivers = [("Manual", None)] + AUTOPILOTS[name]
 
     for k in [k for k in plt.rcParams if k.startswith("keymap.")]:
         plt.rcParams[k] = []
 
     arena = scenario.make_arena()
     task = scenario.make_task(arena)
-    rng = np.random.default_rng(7)
-    state = {"sim": None, "held": set()}
+    state = {"episode": 0, "driver": 0, "held": set(), "sim": None, "seed": None,
+             "step": 0, "actions": [], "used": set(), "done": False, "final": ""}
 
-    def new_sim():
+    def new_episode():
+        state["episode"] += 1
+        state["seed"] = SEED_BASE + state["episode"]
+        rng = np.random.default_rng(state["seed"])
         bots = make_bots(rng, start_center=scenario.start_center)
         state["sim"] = Simulator(arena, bots, rng)
+        state.update(step=0, actions=[], used=set(), done=False, final="")
 
-    new_sim()
+    new_episode()
     xmin, xmax, ymin, ymax = arena.bounds
-    fig, ax = plt.subplots(figsize=(11, 5))
+    fig, ax = plt.subplots(figsize=(11, 5.4))
     ax.set_xlim(xmin - 0.3, xmax + 0.3)
     ax.set_ylim(ymin - 0.4, ymax + 0.4)
     ax.set_aspect("equal")
@@ -62,6 +91,8 @@ def main():
     scat = ax.scatter(sim.pos[:, 0], sim.pos[:, 1], c=sim.bots.speed_factor,
                       cmap="cool", s=10, vmin=0.7, vmax=1.3, zorder=2)
     title = ax.set_title("")
+    fig.text(0.5, 0.015, "Arrows/WASD: steer    C: change driver    R: new episode    Q: quit",
+             ha="center", color="#8b93a1")
 
     def field_now():
         f = np.zeros(2)
@@ -70,20 +101,57 @@ def main():
         n = np.linalg.norm(f)
         return f / n if n > 0 else f
 
+    def finish():
+        s = state["sim"]
+        score = task.score(s.pos)
+        state["done"] = True
+        if len(state["used"]) != 1:
+            state["final"] = f"FINAL SCORE {score:.3f}  (driver changed mid-episode, not logged)"
+            return
+        label = next(iter(state["used"]))
+        RESULTS.mkdir(exist_ok=True)
+        log = RESULTS / "play_scores.csv"
+        new_file = not log.exists()
+        with log.open("a", newline="") as fh:
+            w = csv.writer(fh)
+            if new_file:
+                w.writerow(["scenario", "seed", "driver", "score"])
+            w.writerow([name, state["seed"], label, f"{score:.4f}"])
+        if label == "Manual":
+            np.savetxt(RESULTS / f"actions_{name}_{state['seed']}.csv",
+                       np.array(state["actions"]), delimiter=",",
+                       header="fx,fy", comments="")
+        state["final"] = f"FINAL SCORE {score:.3f}  (logged as {label})  press R for next"
+
     def on_press(e):
         if e.key in KEY_DIRS:
             state["held"].add(e.key)
+        elif e.key == "c":
+            state["driver"] = (state["driver"] + 1) % len(drivers)
         elif e.key == "r":
-            new_sim()
+            new_episode()
             scat.set_array(state["sim"].bots.speed_factor)
         elif e.key == "q":
             plt.close(fig)
 
     def update(_):
         s = state["sim"]
-        s.step(field_now())
+        label, ctrl = drivers[state["driver"]]
+        if not state["done"]:
+            if ctrl is None:
+                f = field_now()
+            else:
+                obs = build_obs(task, s, state["step"] / scenario.steps)
+                f = ctrl.act(obs, s.rng)
+            state["actions"].append(f)
+            state["used"].add(label)
+            s.step(f)
+            state["step"] += 1
+            if state["step"] >= scenario.steps:
+                finish()
         scat.set_offsets(s.pos)
-        title.set_text(task.status(s.pos))
+        head = f"[{label}]  step {state['step']}/{scenario.steps}   {task.status(s.pos)}"
+        title.set_text(head + ("\n" + state["final"] if state["done"] else ""))
         return scat, title
 
     fig.canvas.mpl_connect("key_press_event", on_press)

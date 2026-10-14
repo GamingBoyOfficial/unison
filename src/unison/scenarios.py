@@ -29,16 +29,21 @@ def tube_scenario() -> Scenario:
     )
 
 
-def split_scenario() -> Scenario:
+def split_scenario(steps: int = 800, name: str = "split") -> Scenario:
     """Phase 3: split the swarm between two arms of a Y-branch, with pulsing
-    flow and sticky walls."""
+    flow and sticky walls. `steps` is the time budget: 800 is a tight deadline
+    (the main benchmark), 1600 gives slow bots time to arrive."""
     return Scenario(
-        name="split",
+        name=name,
         make_arena=lambda: y_branch(),
         make_task=lambda a: SplitTask(target_x=11.0),
         start_center=(0.5, 0.0),
-        steps=800,
+        steps=steps,
     )
 
 
-SCENARIOS = {"tube": tube_scenario, "split": split_scenario}
+SCENARIOS = {
+    "tube": tube_scenario,
+    "split": split_scenario,
+    "split_long": lambda: split_scenario(steps=1600, name="split_long"),
+}

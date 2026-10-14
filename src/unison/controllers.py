@@ -59,3 +59,4 @@ class SwitchController(Controller):
     def act(self, obs, rng):
         up = obs[PROGRESS] < self.switch_at
         return np.array([0.7, 0.7 if up else -0.7])
+

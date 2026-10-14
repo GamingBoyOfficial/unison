@@ -44,10 +44,12 @@ class SplitTask:
     two targets got nothing, so sending everything to one arm scores zero.
     """
 
-    def __init__(self, target_x: float, y_top: float = 2.5, y_bottom: float = -2.5):
+    def __init__(self, target_x: float, y_top: float = 2.5, y_bottom: float = -2.5,
+                 junction_x: float = 6.0):
         self.target_x = target_x
         self.y_top = y_top
         self.y_bottom = y_bottom
+        self.junction_x = junction_x
 
     def fractions(self, pos: np.ndarray) -> tuple[float, float]:
         at_end = pos[:, 0] >= self.target_x
@@ -58,10 +60,23 @@ class SplitTask:
         up, low = self.fractions(pos)
         return 2.0 * min(up, low)
 
+    def committed(self, pos: np.ndarray) -> tuple[float, float, float]:
+        """Fractions of bots (in main channel, inside upper arm, inside lower arm).
+
+        This is the "picture" a human sees: where the bots have already gone,
+        long before they reach the targets.
+        """
+        past = pos[:, 0] >= self.junction_x
+        return (float(np.mean(~past)),
+                float(np.mean(past & (pos[:, 1] > 0))),
+                float(np.mean(past & (pos[:, 1] < 0))))
+
     def observe(self, pos: np.ndarray) -> np.ndarray:
         up, low = self.fractions(pos)
+        main, c_up, c_low = self.committed(pos)
         return np.array([pos[:, 0].mean(), pos[:, 1].mean(),
-                         pos[:, 0].std(), pos[:, 1].std(), up, low])
+                         pos[:, 0].std(), pos[:, 1].std(), up, low,
+                         main, c_up, c_low])
 
     def target_regions(self):
         return [(self.target_x, self.target_x + 50.0, 0.0, self.y_top),
