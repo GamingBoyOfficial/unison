@@ -149,3 +149,12 @@ def test_numpy_policy_matches_the_sklearn_model_it_came_from():
         assert np.allclose(policy.act(row, None), want, atol=1e-9)
     mutated = policy.with_params(policy.params + 0.1)
     assert not np.allclose(mutated.act(X[0], None), policy.act(X[0], None))
+
+
+def test_small_sample_confidence_interval_uses_t_not_1_96():
+    from unison.stats import mean_ci, t_crit
+    assert t_crit(6) == 2.447 and t_crit(500) == 1.96
+    m, half = mean_ci([0.8, 0.9, 0.85, 0.95, 0.75, 0.9, 0.8])
+    sd = np.std([0.8, 0.9, 0.85, 0.95, 0.75, 0.9, 0.8], ddof=1)
+    assert abs(half - 2.447 * sd / np.sqrt(7)) < 1e-12
+    assert half > 1.96 * sd / np.sqrt(7)

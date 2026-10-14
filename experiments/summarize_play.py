@@ -10,9 +10,9 @@ Run:  python experiments/summarize_play.py
 from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
 
 from unison.playlog import latest_per_seed, read_rows
+from unison.stats import mean_ci
 
 rows = read_rows(Path("results/play_scores.csv"))
 if not rows:
@@ -30,6 +30,6 @@ for r in kept:
 print(f"{'Scenario':<12}{'Driver':<24}{'Swarms':>8}{'Mean':>9}{'  95% CI':>12}")
 print("-" * 65)
 for (scenario, driver), scores in sorted(groups.items()):
-    s = np.array(scores)
-    ci = f"+/- {1.96 * s.std(ddof=1) / np.sqrt(len(s)):.3f}" if len(s) > 1 else "(need 2+)"
-    print(f"{scenario:<12}{driver:<24}{len(s):>8}{s.mean():>9.3f}{ci:>12}")
+    m, half = mean_ci(scores)
+    ci = f"+/- {half:.3f}" if len(scores) > 1 else "(need 2+)"
+    print(f"{scenario:<12}{driver:<24}{len(scores):>8}{m:>9.3f}{ci:>12}")

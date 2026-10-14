@@ -3,6 +3,9 @@
   python experiments/play.py          # the Y-branch split task
   python experiments/play.py split_long   # same, with a 1600-step time budget
   python experiments/play.py tube     # the straight tube
+  python experiments/play.py split --benchmark
+                                      # the exact swarms the AI is scored on (seeds 20000+),
+                                      # for a fair human-vs-AI comparison
 
 Controls (click the plot window first):
   Arrow keys or W/A/S/D : set the field direction (hold to keep pushing)
@@ -35,6 +38,7 @@ from unison.simulator import Simulator
 
 RESULTS = Path("results")
 SEED_BASE = 5000          # play episodes use their own seeds, apart from evaluation
+BENCH_SEED_BASE = 20000   # benchmark mode: the swarms evaluate_model.py scores the AI on
 
 KEY_DIRS = {"up": (0, 1), "w": (0, 1), "down": (0, -1), "s": (0, -1),
             "left": (-1, 0), "a": (-1, 0), "right": (1, 0), "d": (1, 0)}
@@ -50,7 +54,9 @@ AUTOPILOTS = {
 
 
 def main():
-    name = sys.argv[1] if len(sys.argv) > 1 else "split"
+    argv = [a for a in sys.argv[1:] if not a.startswith("--")]
+    benchmark = "--benchmark" in sys.argv
+    name = argv[0] if argv else "split"
     if name not in SCENARIOS:
         raise SystemExit(f"Unknown scenario '{name}'. Choose from: {', '.join(SCENARIOS)}")
     scenario = SCENARIOS[name]()
@@ -63,12 +69,20 @@ def main():
     task = scenario.make_task(arena)
     # Continue numbering above every seed already logged, so a swarm is never reused.
     seed_base = next_seed_base(read_rows(RESULTS / "play_scores.csv"), name, SEED_BASE)
+    bench_log = RESULTS / "benchmark_scores.csv"
+    bench_done = [int(r["seed"]) for r in read_rows(bench_log) if r["scenario"] == name]
+    bench_next = max([BENCH_SEED_BASE - 1] + bench_done) + 1
     state = {"episode": 0, "driver": 0, "held": set(), "sim": None, "seed": None,
-             "step": 0, "actions": [], "used": set(), "done": False, "final": ""}
+             "step": 0, "actions": [], "used": set(), "done": False, "final": "",
+             "bench_next": bench_next}
 
     def new_episode():
         state["episode"] += 1
-        state["seed"] = seed_base + state["episode"]
+        if benchmark:
+            state["seed"] = state["bench_next"]
+            state["bench_next"] += 1
+        else:
+            state["seed"] = seed_base + state["episode"]
         rng = np.random.default_rng(state["seed"])
         bots = make_bots(rng, start_center=scenario.start_center)
         state["sim"] = Simulator(arena, bots, rng)
@@ -108,6 +122,21 @@ def main():
         s = state["sim"]
         score = task.score(s.pos)
         state["done"] = True
+        if benchmark:
+            if state["used"] == {"Manual"}:
+                RESULTS.mkdir(exist_ok=True)
+                new_file = not bench_log.exists()
+                with bench_log.open("a", newline="") as fh:
+                    w = csv.writer(fh)
+                    if new_file:
+                        w.writerow(["scenario", "seed", "score"])
+                    w.writerow([name, state["seed"], f"{score:.4f}"])
+                np.savetxt(RESULTS / f"bench_actions_{name}_{state['seed']}.csv",
+                           np.array(state["actions"]), delimiter=",", header="fx,fy", comments="")
+                state["final"] = f"FINAL SCORE {score:.3f}  (benchmark swarm {state['seed']} logged)  press R for next"
+            else:
+                state["final"] = f"FINAL SCORE {score:.3f}  (driver changed, not logged)"
+            return
         if len(state["used"]) != 1:
             state["final"] = f"FINAL SCORE {score:.3f}  (driver changed mid-episode, not logged)"
             return
@@ -129,7 +158,7 @@ def main():
     def on_press(e):
         if e.key in KEY_DIRS:
             state["held"].add(e.key)
-        elif e.key == "c":
+        elif e.key == "c" and not benchmark:
             state["driver"] = (state["driver"] + 1) % len(drivers)
         elif e.key == "r":
             new_episode()
@@ -153,7 +182,8 @@ def main():
             if state["step"] >= scenario.steps:
                 finish()
         scat.set_offsets(s.pos)
-        head = f"[{label}]  step {state['step']}/{scenario.steps}   {task.status(s.pos)}"
+        tag = f"BENCHMARK swarm {state['seed']}   " if benchmark else ""
+        head = f"{tag}[{label}]  step {state['step']}/{scenario.steps}   {task.status(s.pos)}"
         title.set_text(head + ("\n" + state["final"] if state["done"] else ""))
         return scat, title
 

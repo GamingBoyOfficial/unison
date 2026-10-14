@@ -1,0 +1,9 @@
+scenario,seed,score
+split,20000,0.8867
+split,20001,0.9467
+split,20002,0.8333
+split,20003,0.8867
+split,20004,0.8867
+split,20005,0.8333
+split,20006,0.8933
+split,20007,0.8067
