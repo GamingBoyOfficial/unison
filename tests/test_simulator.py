@@ -102,3 +102,28 @@ def test_committed_fractions_sum_to_one():
 def test_split_long_scenario_has_a_longer_time_budget():
     from unison.scenarios import SCENARIOS
     assert SCENARIOS["split_long"]().steps == 2 * SCENARIOS["split"]().steps
+
+
+def test_replaying_recorded_actions_reproduces_the_episode():
+    from unison.imitation import replay_demo
+    s = split_scenario()
+    steps = 150
+    actions = np.tile(np.array([1.0, 0.0]), (steps, 1))
+    demo = replay_demo(s, seed=11, actions=actions)
+    direct = run_episode(PushTowardTarget(), seed=11, scenario=s, steps=steps)
+    assert demo.score == direct
+    assert demo.obs.shape == (steps, 12)
+
+
+def test_playlog_keeps_latest_attempt_and_continues_seeds():
+    from unison.playlog import latest_per_seed, next_seed_base
+    rows = [
+        {"scenario": "split", "seed": "5001", "driver": "Manual", "score": "0.74"},
+        {"scenario": "split", "seed": "5002", "driver": "Manual", "score": "0.80"},
+        {"scenario": "split", "seed": "5001", "driver": "Manual", "score": "0.81"},
+    ]
+    kept = latest_per_seed(rows)
+    assert len(kept) == 2
+    assert [r["score"] for r in kept if r["seed"] == "5001"] == ["0.81"]
+    assert next_seed_base(rows, "split", 5000) == 5002
+    assert next_seed_base(rows, "tube", 5000) == 5000

@@ -29,6 +29,7 @@ from matplotlib.patches import Rectangle
 from unison.bots import make_bots
 from unison.controllers import PushTowardTarget, SwitchController, WallHugging
 from unison.evaluate import build_obs
+from unison.playlog import next_seed_base, read_rows
 from unison.scenarios import SCENARIOS
 from unison.simulator import Simulator
 
@@ -60,12 +61,14 @@ def main():
 
     arena = scenario.make_arena()
     task = scenario.make_task(arena)
+    # Continue numbering above every seed already logged, so a swarm is never reused.
+    seed_base = next_seed_base(read_rows(RESULTS / "play_scores.csv"), name, SEED_BASE)
     state = {"episode": 0, "driver": 0, "held": set(), "sim": None, "seed": None,
              "step": 0, "actions": [], "used": set(), "done": False, "final": ""}
 
     def new_episode():
         state["episode"] += 1
-        state["seed"] = SEED_BASE + state["episode"]
+        state["seed"] = seed_base + state["episode"]
         rng = np.random.default_rng(state["seed"])
         bots = make_bots(rng, start_center=scenario.start_center)
         state["sim"] = Simulator(arena, bots, rng)
