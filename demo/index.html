@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Unison - swarm replay</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#02050a; --ink:#d7ecff; --dim:#6f8aa3; --line:rgba(120,190,255,.18); }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); overflow:hidden;
+    font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; color:var(--ink); }
+  canvas#c { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  .vignette { position:fixed; inset:0; pointer-events:none;
+    background: radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,.72) 100%); }
+  .fade { position:fixed; inset:0; background:#000; pointer-events:none; opacity:1; transition:opacity 1.6s ease; }
+  .fade.off { opacity:0; }
+
+  .brand { position:fixed; top:24px; left:28px; pointer-events:none; }
+  .brand h1 { margin:0; font-size:22px; letter-spacing:.42em; font-weight:600; }
+  .brand p { margin:6px 0 0; color:var(--dim); font-size:13px; letter-spacing:.08em; }
+  .brand small { display:block; margin-top:14px; color:#4d6479; font-size:11px; letter-spacing:.06em; max-width:260px; line-height:1.5; }
+
+  .cards { position:fixed; top:24px; right:24px; display:flex; flex-direction:column; gap:12px; width:250px; }
+  .card { background:rgba(6,14,24,.62); border:1px solid var(--line); border-radius:14px; padding:12px 14px;
+    backdrop-filter: blur(6px); transition: border-color .3s, opacity .3s; }
+  .card.dim { opacity:.55; }
+  .card .head { display:flex; align-items:center; justify-content:space-between; font-size:12px;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--dim); }
+  .card .head b { color:var(--ink); font-weight:600; display:flex; align-items:center; gap:8px; }
+  .dot { width:9px; height:9px; border-radius:50%; display:inline-block; box-shadow:0 0 10px currentColor; }
+  .score { font-size:40px; font-weight:300; letter-spacing:.02em; margin:4px 0 10px; line-height:1.05; font-variant-numeric: tabular-nums; }
+  .score span { display:block; font-size:10px; color:var(--dim); letter-spacing:.2em; margin:2px 0 0; }
+  .bar { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--dim); margin:3px 0; }
+  .bar i { flex:1; height:4px; border-radius:2px; background:rgba(120,190,255,.12); overflow:hidden; display:block; }
+  .bar i em { display:block; height:100%; width:0; border-radius:2px; }
+  .bar span { width:38px; text-align:right; font-variant-numeric: tabular-nums; color:var(--ink); }
+  .field { display:flex; align-items:center; gap:10px; margin-top:8px; font-size:11px; color:var(--dim); letter-spacing:.1em; }
+  .compass { width:34px; height:34px; border-radius:50%; border:1px solid var(--line); position:relative; }
+  .compass .arrow { position:absolute; left:50%; top:50%; width:0; height:0; transform-origin:0 0; }
+  .compass .arrow:before { content:""; position:absolute; left:0; top:-1px; width:13px; height:2px; background:currentColor;
+    box-shadow:0 0 6px currentColor; border-radius:1px; transform-origin:0 50%; }
+  .compass .arrow:after { content:""; position:absolute; left:11px; top:-4px; border-left:6px solid currentColor;
+    border-top:4px solid transparent; border-bottom:4px solid transparent; }
+
+  .legend { position:fixed; left:28px; bottom:24px; font-size:11px; color:var(--dim); letter-spacing:.08em; line-height:1.9; pointer-events:none; }
+  .legend .grad { width:150px; height:6px; border-radius:3px; margin:4px 0 2px;
+    background: linear-gradient(90deg, #ff40a6, #35e0ff); }
+  .legend .row { display:flex; justify-content:space-between; width:150px; }
+  .legend .red { display:inline-block; width:7px; height:7px; border-radius:50%; background:#ff5a3c; margin-right:7px; opacity:.8; }
+
+  .bar-ui { white-space:nowrap; position:fixed; left:50%; bottom:22px; transform:translateX(-50%); display:flex; gap:8px; align-items:center;
+    background:rgba(6,14,24,.62); border:1px solid var(--line); border-radius:999px; padding:8px 12px; backdrop-filter: blur(6px); }
+  .bar-ui button { background:transparent; color:var(--ink); border:1px solid transparent; border-radius:999px; padding:7px 13px;
+    font:inherit; font-size:12px; letter-spacing:.08em; cursor:pointer; }
+  .bar-ui button:hover { border-color:var(--line); background:rgba(120,190,255,.08); }
+  .bar-ui button.on { border-color:rgba(120,190,255,.5); background:rgba(120,190,255,.14); }
+  #focusBtns { display:flex; gap:6px; }
+  .bar-ui .sep { width:1px; height:18px; background:var(--line); margin:0 4px; }
+  .progress { position:fixed; left:0; right:0; bottom:0; height:2px; background:rgba(120,190,255,.1); pointer-events:none; }
+  .progress i { display:block; height:100%; width:0; background:linear-gradient(90deg,#35e0ff,#ff9f43); }
+
+  .finale { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%) scale(.96); text-align:center; pointer-events:none;
+    opacity:0; transition: opacity 1s ease, transform 1s ease; }
+  .finale.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  .finale:before { content:''; position:absolute; inset:-80px -140px; z-index:-1; background:radial-gradient(ellipse at center, rgba(2,5,10,.78) 0%, rgba(2,5,10,0) 70%); }
+  .finale .big { font-size:14px; letter-spacing:.5em; color:#9fb6c9; text-shadow:0 0 14px #000; }
+  .finale .res { display:flex; gap:48px; margin-top:14px; justify-content:center; }
+  .finale .res div { font-size:60px; font-weight:300; text-shadow:0 0 24px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.8); font-variant-numeric: tabular-nums; }
+  .finale .res small { display:block; font-size:12px; letter-spacing:.2em; color:#b6cadb; text-shadow:0 0 10px #000; text-transform:uppercase; margin-top:2px; }
+
+  #msg { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:30px;
+    color:var(--dim); font-size:15px; line-height:1.7; letter-spacing:.04em; }
+  #msg b { color:var(--ink); }
+  .hidden { display:none !important; }
+  @media (max-width: 760px) { .cards { width:190px; top:auto; bottom:84px; right:12px; } .score { font-size:28px; }
+    .legend, .brand small { display:none; } .bar-ui { flex-wrap:wrap; justify-content:center; width:92%; border-radius:18px; } }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script src="replay.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="vignette"></div>
+
+<div class="brand">
+  <h1>UNISON</h1>
+  <p>One signal. Imperfect bots.</p>
+  <small>Replay of a real simulation run. Physics are 2D; the 3D look is a rendering of that run.</small>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="legend">
+  BOT SPEED
+  <div class="grad"></div>
+  <div class="row"><span>slower</span><span>faster</span></div>
+  <div style="margin-top:8px"><span class="red"></span>fluid flow (illustrative)</div>
+</div>
+
+<div class="bar-ui" id="ui">
+  <button id="bPlay">Pause</button>
+  <button id="bRestart">Restart</button>
+  <span class="sep"></span>
+  <button data-speed="0.5">0.5x</button>
+  <button data-speed="1" class="on">1x</button>
+  <button data-speed="2">2x</button>
+  <span class="sep"></span>
+  <button id="bCam" style="min-width:150px">Camera: Cinematic</button>
+  <span class="sep" id="focusSep"></span>
+  <span id="focusBtns"></span>
+</div>
+<div class="progress"><i id="prog"></i></div>
+
+<div class="finale" id="finale"><div class="big">FINAL SCORE</div><div class="res" id="finRes"></div></div>
+<div class="fade" id="fade"></div>
+<div id="msg">Loading the 3D scene...</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const msg = document.getElementById('msg');
+const R = window.UNISON_REPLAY;
+if (!R) {
+  msg.innerHTML = '<div><b>replay.js not found.</b><br>Run <b>python experiments/export_replay.py</b> first, then reload.</div>';
+  throw new Error('no replay data');
+}
+
+// ---------- constants ----------
+const nRuns = R.runs.length, N = R.nBots, nFrames = R.runs[0].frames.length;
+const SPF = 0.14;                       // real seconds per recorded frame at 1x
+const TOTAL = (nFrames - 1) * SPF;
+const CX = 6;                           // shift physics x so the vessel is centred
+const LANE = 8.4;                       // distance between the stacked vessels
+const laneZ = k => (k - (nRuns - 1) / 2) * LANE;
+const A = R.arena, rects = A.rects.map(r => ({ ...r, w: (r.y1 - r.y0) / 2, yc: (r.y0 + r.y1) / 2 }));
+const simTime = f => f * R.stride * R.dt;
+const pulse = ts => (A.pulseAmp ? 1 + A.pulseAmp * Math.sin(2 * Math.PI * ts / A.pulsePeriod) : 1);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => t * t * (3 - 2 * t);
+
+// ---------- renderer / scene ----------
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.92;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x02050a);
+scene.fog = new THREE.FogExp2(0x02050a, 0.016);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 400);
+
+scene.add(new THREE.AmbientLight(0x6688bb, 0.7));
+const key = new THREE.PointLight(0x35e0ff, 60, 40); key.position.set(0, 7, 2); scene.add(key);
+const warm = new THREE.PointLight(0xff8a50, 25, 40); warm.position.set(8, 3, -4); scene.add(warm);
+
+const grid = new THREE.GridHelper(120, 120, 0x15344f, 0x0a1826);
+grid.position.y = -3.6; grid.material.transparent = true; grid.material.opacity = 0.55; scene.add(grid);
+
+// ---------- glow-point shader ----------
+const pointVS = `
+  uniform float uPx; uniform float uSize; attribute vec3 aColor; varying vec3 vColor;
+  void main(){ vColor = aColor; vec4 mv = modelViewMatrix * vec4(position,1.0);
+    gl_Position = projectionMatrix * mv; gl_PointSize = uSize * uPx / (-mv.z); }`;
+const pointFS = `
+  varying vec3 vColor; uniform float uGain;
+  void main(){ vec2 p = gl_PointCoord - 0.5; float d = length(p) * 2.0; if (d > 1.0) discard;
+    float core = smoothstep(0.55, 0.0, d); float halo = smoothstep(1.0, 0.0, d) * 0.35; float a = core + halo;
+    gl_FragColor = vec4(vColor * uGain * a, a); }`;
+const pointMats = [];
+function glowMaterial(size, gain) {
+  const m = new THREE.ShaderMaterial({
+    uniforms: { uPx: { value: 800 }, uSize: { value: size }, uGain: { value: gain } },
+    vertexShader: pointVS, fragmentShader: pointFS,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  pointMats.push(m); return m;
+}
+
+// ---------- vessels, targets, bots, tracers (one lane per run) ----------
+const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x2f7fb8, transparent: true, opacity: 0.07,
+  roughness: 0.15, metalness: 0.0, side: THREE.DoubleSide, depthWrite: false });
+const rimMat = new THREE.MeshBasicMaterial({ color: 0x3aa0ff, transparent: true, opacity: 0.045,
+  side: THREE.BackSide, blending: THREE.AdditiveBlending, depthWrite: false });
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x4fb3ff, transparent: true, opacity: 0.2,
+  blending: THREE.AdditiveBlending, depthWrite: false });
+const targetMat = new THREE.MeshBasicMaterial({ color: 0x31ff9d, transparent: true, opacity: 0.13,
+  side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false });
+const targetRingMat = new THREE.MeshBasicMaterial({ color: 0x31ff9d, transparent: true, opacity: 0.85,
+  blending: THREE.AdditiveBlending, depthWrite: false });
+
+// drifting dust for depth (round, soft)
+{
+  const n = 2600, p = new Float32Array(n * 3), c = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    p[i*3] = (Math.random()-.5)*90; p[i*3+1] = Math.random()*30-8; p[i*3+2] = (Math.random()-.5)*90;
+    const b = 0.25 + Math.random() * 0.35; c.set([0.35 * b, 0.6 * b, 0.9 * b], i * 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('aColor', new THREE.BufferAttribute(c, 3));
+  const dust = new THREE.Points(g, glowMaterial(0.09, 0.55)); dust.name = 'dust'; dust.frustumCulled = false; scene.add(dust);
+}
+
+const speedColor = s => {
+  const t = clamp((s - 0.7) / 0.6, 0, 1), c0 = [1.0, 0.25, 0.65], c1 = [0.2, 0.9, 1.0];
+  return [lerp(c0[0], c1[0], t), lerp(c0[1], c1[1], t), lerp(c0[2], c1[2], t)];
+};
+
+const lanes = [];
+const M = 1500;                                          // fluid tracers per lane
+const entryRects = (() => { const mx = Math.max(...rects.map(r => r.x1)); return rects.filter(r => r.x1 >= mx - 1e-6); })();
+for (let k = 0; k < nRuns; k++) {
+  const group = new THREE.Group(); group.position.z = laneZ(k); scene.add(group);
+  const tubes = [];
+  rects.forEach(r => {
+    const len = r.x1 - r.x0;
+    const tube = new THREE.Group(); tube.position.set((r.x0 + r.x1) / 2 - CX, 0, r.yc);
+    const geo = new THREE.CylinderGeometry(r.w, r.w, len, 64, 1, true); geo.rotateZ(Math.PI / 2);
+    tube.add(new THREE.Mesh(geo, glassMat));
+    const rim = new THREE.Mesh(geo, rimMat); rim.scale.set(1, 1.035, 1.035); tube.add(rim);
+    for (let x = -len / 2 + 0.55; x < len / 2 - 0.2; x += 0.6) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(r.w * 1.002, 0.014, 6, 72), ringMat);
+      ring.rotation.y = Math.PI / 2; ring.position.x = x; tube.add(ring);
+    }
+    group.add(tube); tubes.push(tube);
+  });
+  rects.filter(r => r.x1 > R.targetX).forEach(r => {
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(r.w * 0.98, 56), targetMat);
+    disc.rotation.y = Math.PI / 2; disc.position.set(R.targetX - CX, 0, r.yc); group.add(disc);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r.w * 0.98, 0.03, 8, 80), targetRingMat);
+    ring.rotation.y = Math.PI / 2; ring.position.copy(disc.position); group.add(ring);
+  });
+
+  // the solid divider between neighbouring arms
+  {
+    const arms = rects.filter(r => r.x0 > 0).sort((a, b) => a.yc - b.yc);
+    for (let a = 0; a + 1 < arms.length; a++) {
+      const lo = arms[a], hi = arms[a + 1], gap = hi.y0 - lo.y1;
+      if (gap <= 0) continue;
+      const x0 = Math.max(lo.x0, hi.x0), x1 = Math.min(lo.x1, hi.x1), h = Math.min(lo.w, hi.w) * 1.7;
+      const box = new THREE.BoxGeometry(x1 - x0, h, gap);
+      const m = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: 0x0a1626, transparent: true, opacity: 0.55, depthWrite: false }));
+      m.position.set((x0 + x1) / 2 - CX, 0, (lo.y1 + hi.y0) / 2); group.add(m);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box),
+        new THREE.LineBasicMaterial({ color: 0x5fb8ff, transparent: true, opacity: 0.5 }));
+      edges.position.copy(m.position); group.add(edges);
+    }
+  }
+
+  // bots
+  const bp = new Float32Array(N * 3), bc = new Float32Array(N * 3);
+  for (let j = 0; j < N; j++) { const c = speedColor(R.speed[j]); bc.set(c, j * 3); }
+  const bg = new THREE.BufferGeometry();
+  bg.setAttribute('position', new THREE.BufferAttribute(bp, 3));
+  bg.setAttribute('aColor', new THREE.BufferAttribute(bc, 3));
+  const bots = new THREE.Points(bg, glowMaterial(0.17, 0.85)); bots.frustumCulled = false; bots.renderOrder = 2; group.add(bots);
+
+  // tracers: ride the fluid at fixed relative lateral position r in [-1, 1]
+  const tp = new Float32Array(M * 3), tc = new Float32Array(M * 3), tx = new Float32Array(M),
+        tr = new Float32Array(M), ti = new Uint8Array(M), th = new Float32Array(M);
+  const area = rects.map(r => (r.x1 - r.x0) * r.w);
+  const areaSum = area.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < M; i++) {
+    let u = Math.random() * areaSum, q = 0; while (q < rects.length - 1 && u > area[q]) { u -= area[q]; q++; }
+    ti[i] = q; tx[i] = rects[q].x0 + Math.random() * (rects[q].x1 - rects[q].x0);
+    tr[i] = (Math.random() * 2 - 1) * 0.95; th[i] = Math.random() * 2 - 1;
+    const b = 0.55 + Math.random() * 0.45; tc.set([1.0 * b, 0.26 * b, 0.14 * b], i * 3);
+  }
+  const tg = new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.BufferAttribute(tp, 3));
+  tg.setAttribute('aColor', new THREE.BufferAttribute(tc, 3));
+  const tracers = new THREE.Points(tg, glowMaterial(0.05, 0.9)); tracers.frustumCulled = false; tracers.renderOrder = 1; group.add(tracers);
+
+  lanes.push({ group, tubes, bp, bg, tp, tg, tx, tr, ti, th });
+}
+
+// nearest rectangle to a physics point (same rule the simulator uses)
+function ownerRect(x, y) {
+  let best = 0, bd = 1e9;
+  for (let q = 0; q < rects.length; q++) {
+    const r = rects[q], cx = clamp(x, r.x0, r.x1), cy = clamp(y, r.y0, r.y1), d = (cx - x) ** 2 + (cy - y) ** 2;
+    if (d < bd) { bd = d; best = q; }
+  }
+  return best;
+}
+
+// ---------- post-processing ----------
+let W = innerWidth, H = innerHeight;
+const rt = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, samples: 4 });
+const composer = new EffectComposer(renderer, rt);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 0.55, 0.5, 0.28);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+function resize() {
+  W = innerWidth; H = innerHeight;
+  renderer.setSize(W, H, false); composer.setSize(W, H);
+  camera.aspect = W / H;
+  if (W > 900) camera.setViewOffset(W, H, Math.round(W * 0.07), 0, W, H); else camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+  const px = renderer.getPixelRatio() * H * 0.5 / Math.tan(camera.fov * Math.PI / 360);
+  pointMats.forEach(m => { m.uniforms.uPx.value = px; });
+}
+addEventListener('resize', resize); resize();
+
+// ---------- HUD ----------
+const cardsEl = document.getElementById('cards');
+const cards = R.runs.map((run, k) => {
+  const el = document.createElement('div'); el.className = 'card';
+  el.innerHTML = `
+    <div class="head"><b><i class="dot" style="color:${run.color};background:${run.color}"></i>${run.name}</b><span>${k + 1}</span></div>
+    <div class="score">0.000<span>SPLIT SCORE</span></div>
+    <div class="bar">UPPER<i><em style="background:${run.color}"></em></i><span>0%</span></div>
+    <div class="bar">LOWER<i><em style="background:${run.color}"></em></i><span>0%</span></div>
+    <div class="field"><div class="compass" style="color:${run.color}"><div class="arrow"></div></div>GLOBAL FIELD</div>`;
+  cardsEl.appendChild(el);
+  return { el, score: el.querySelector('.score'), ems: el.querySelectorAll('em'), spans: el.querySelectorAll('.bar span'),
+           arrow: el.querySelector('.arrow') };
+});
+function updateHUD(f) {
+  const i = Math.min(Math.floor(f), nFrames - 1), j = Math.min(i + 1, nFrames - 1), a = f - i;
+  R.runs.forEach((run, k) => {
+    const c = cards[k], s = lerp(run.score[i], run.score[j], a), u = lerp(run.up[i], run.up[j], a), l = lerp(run.low[i], run.low[j], a);
+    c.score.firstChild.nodeValue = s.toFixed(3);
+    c.ems[0].style.width = (u * 100 * 2).toFixed(1) + '%'; c.ems[1].style.width = (l * 100 * 2).toFixed(1) + '%';
+    c.spans[0].textContent = Math.round(u * 100) + '%'; c.spans[1].textContent = Math.round(l * 100) + '%';
+    const fx = run.field[i][0], fy = run.field[i][1], ang = Math.atan2(fy, fx), mag = Math.hypot(fx, fy);
+    c.arrow.style.transform = `rotate(${-ang}rad) scale(${0.35 + 0.65 * Math.min(1, mag)})`;
+    c.arrow.style.opacity = mag < 0.02 ? 0.25 : 1;
+  });
+}
+
+// ---------- playback + camera state ----------
+let t = 0, playing = true, speed = 1, camMode = 'cinematic', focus = nRuns > 1 ? 'both' : 0, ended = false;
+const fade = document.getElementById('fade'), finale = document.getElementById('finale'), prog = document.getElementById('prog');
+const bPlay = document.getElementById('bPlay'), bCam = document.getElementById('bCam');
+const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.enabled = false;
+controls.maxDistance = 60; controls.minDistance = 3;
+
+const setPlaying = v => { playing = v; bPlay.textContent = v ? 'Pause' : 'Play'; };
+function restart() { t = 0; ended = false; finale.classList.remove('show'); setPlaying(true); fade.classList.remove('off'); setTimeout(() => fade.classList.add('off'), 60); camSnap = true; }
+bPlay.onclick = () => { if (ended) restart(); else setPlaying(!playing); };
+document.getElementById('bRestart').onclick = restart;
+document.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => {
+  speed = +b.dataset.speed; document.querySelectorAll('[data-speed]').forEach(x => x.classList.toggle('on', x === b)); });
+function setCam(mode) {
+  camMode = mode; bCam.textContent = 'Camera: ' + (mode === 'cinematic' ? 'Cinematic' : 'Free');
+  controls.enabled = mode === 'free';
+  if (mode === 'free') { controls.target.copy(lookNow); controls.update(); }
+}
+bCam.onclick = () => setCam(camMode === 'cinematic' ? 'free' : 'cinematic');
+const focusBtns = document.getElementById('focusBtns');
+function setFocus(v) { focus = v; [...focusBtns.children].forEach(b => b.classList.toggle('on', b.dataset.f == String(v))); }
+if (nRuns > 1) {
+  [...R.runs.map((r, k) => [k, r.name]), ['both', 'Both']].forEach(([v, label]) => {
+    const b = document.createElement('button'); b.textContent = label; b.dataset.f = String(v); b.onclick = () => setFocus(v); focusBtns.appendChild(b); });
+  setFocus('both');
+} else { document.getElementById('focusSep').classList.add('hidden'); }
+addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); bPlay.click(); }
+  else if (e.key === 'r' || e.key === 'R') restart();
+  else if (e.key === 'c' || e.key === 'C') bCam.click();
+  else if (e.key >= '1' && e.key <= String(nRuns)) setFocus(+e.key - 1);
+  else if (e.key === '0' || e.key === 'b') setFocus('both');
+});
+
+// cinematic camera: offsets from an anchor that slides from the swarm to the junction and back out
+const KEYS = [
+  { p: 0.00, o: [-8.5, 4.0, 8.5],  j: 0.0 },
+  { p: 0.18, o: [-5.5, 6.5, 9.5],  j: 0.0 },
+  { p: 0.45, o: [ 1.5, 10.5, 9.0], j: 0.35 },
+  { p: 0.68, o: [ 3.5, 6.0, 7.0],  j: 1.0 },
+  { p: 0.88, o: [ 0.5, 13.0, 9.0], j: 0.7 },
+  { p: 1.00, o: [-1.5, 15.0, 11.0], j: 0.7 },
+];
+function keyPose(p) {
+  let a = KEYS[0], b = KEYS[KEYS.length - 1];
+  for (let i = 0; i < KEYS.length - 1; i++) if (p >= KEYS[i].p && p <= KEYS[i + 1].p) { a = KEYS[i]; b = KEYS[i + 1]; break; }
+  const u = a === b ? 0 : smooth((p - a.p) / (b.p - a.p));
+  return { o: a.o.map((v, i) => lerp(v, b.o[i], u)), j: lerp(a.j, b.j, u) };
+}
+const lookNow = new THREE.Vector3(-4, 0, 0), camGoal = new THREE.Vector3(), lookGoal = new THREE.Vector3(), centroid = new THREE.Vector3();
+let camSnap = true;
+
+function updateCentroid(f) {
+  const runsIdx = focus === 'both' ? R.runs.map((_, k) => k) : [focus];
+  let sx = 0, sz = 0, zc = 0;
+  runsIdx.forEach(k => {
+    const fr = R.runs[k].frames[Math.min(Math.round(f), nFrames - 1)];
+    let x = 0, y = 0; for (let j = 0; j < N; j++) { x += fr[j * 2]; y += fr[j * 2 + 1]; }
+    sx += x / N / 100 - CX; sz += y / N / 100 + laneZ(k); zc += laneZ(k);
+  });
+  centroid.set(sx / runsIdx.length, 0, sz / runsIdx.length);
+  return zc / runsIdx.length;
+}
+function cinematic(p, dt, f) {
+  const zc = updateCentroid(f), { o, j } = keyPose(clamp(p, 0, 1));
+  const junction = new THREE.Vector3(0, 0, zc), anchor = centroid.clone().lerp(junction, j);
+  const s = focus === 'both' && nRuns > 1 ? 1.25 : 1.0, ang = Math.sin(p * Math.PI) * 0.45 + (ended ? t * 0.05 : 0);
+  const ox = o[0] * s, oz = o[2] * s, ca = Math.cos(ang), sa = Math.sin(ang);
+  camGoal.set(anchor.x + ox * ca - oz * sa, anchor.y + o[1] * s, anchor.z + ox * sa + oz * ca);
+  lookGoal.copy(anchor);
+  const k = camSnap ? 1 : 1 - Math.pow(0.02, dt);
+  camera.position.lerp(camGoal, k); lookNow.lerp(lookGoal, k); camSnap = false;
+  camera.lookAt(lookNow);
+}
+
+// ---------- per-frame scene update ----------
+function updateLane(k, f, ts, dtSim) {
+  const L = lanes[k], fr = R.runs[k].frames, i = Math.min(Math.floor(f), nFrames - 1), j2 = Math.min(i + 1, nFrames - 1), a = f - i;
+  const f0 = fr[i], f1 = fr[j2], p = L.bp;
+  for (let n = 0; n < N; n++) {
+    const x = lerp(f0[n * 2], f1[n * 2], a) / 100, y = lerp(f0[n * 2 + 1], f1[n * 2 + 1], a) / 100;
+    const r = rects[ownerRect(x, y)], lat = clamp((y - r.yc) / r.w, -1, 1);
+    p[n * 3] = x - CX; p[n * 3 + 1] = R.hfrac[n] * 0.82 * r.w * Math.sqrt(Math.max(0, 1 - lat * lat)); p[n * 3 + 2] = y;
+  }
+  L.bg.attributes.position.needsUpdate = true;
+
+  const pl = pulse(ts), q = L.tp;
+  for (let i2 = 0; i2 < M; i2++) {
+    let ri = L.ti[i2], r = rects[ri];
+    const u = A.flowDir * A.flowSpeed * r.flow * (1 - L.tr[i2] ** 2) * pl;
+    L.tx[i2] += u * dtSim;
+    if (L.tx[i2] < r.x0) {
+      const next = rects.findIndex(rr => rr.x0 < r.x0 && rr.x1 >= r.x0 - 1e-6);
+      if (next < 0) {                                  // left the vessel: re-enter at the far end
+        const e = entryRects[Math.floor(Math.random() * entryRects.length)];
+        ri = rects.indexOf(e); L.tx[i2] = e.x1 - Math.random() * 0.4; L.tr[i2] = (Math.random() * 2 - 1) * 0.95;
+      } else { ri = next; L.tx[i2] = Math.max(rects[next].x0, L.tx[i2]); }
+      L.ti[i2] = ri; r = rects[ri];
+    }
+    const lat = L.tr[i2], hy = L.th[i2] * 0.85 * r.w * Math.sqrt(Math.max(0, 1 - lat * lat));
+    q[i2 * 3] = L.tx[i2] - CX; q[i2 * 3 + 1] = hy; q[i2 * 3 + 2] = r.yc + lat * r.w;
+  }
+  L.tg.attributes.position.needsUpdate = true;
+  const sc = 1 + 0.08 * (pl - 1);
+  L.tubes.forEach(tb => tb.scale.set(1, sc, sc));
+}
+
+// ---------- main loop ----------
+const clock = new THREE.Clock();
+let started = false;
+function frame() {
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (playing && !ended) {
+    t += dt * speed;
+    if (t >= TOTAL) { t = TOTAL; ended = true; setPlaying(false); setTimeout(() => finale.classList.add('show'), 900); }
+  }
+  const f = clamp(t / SPF, 0, nFrames - 1), ts = simTime(f), dtSim = (playing && !ended ? dt * speed : 0) * (R.stride * R.dt / SPF);
+  for (let k = 0; k < nRuns; k++) updateLane(k, f, ts, dtSim);
+  updateHUD(f);
+  prog.style.width = (100 * t / TOTAL).toFixed(2) + '%';
+  const pl = pulse(ts); bloom.strength = A.pulseAmp ? 0.55 + 0.2 * (pl - 1) / A.pulseAmp : 0.6;
+  const dustObj = scene.getObjectByName('dust'); dustObj.rotation.y += dt * 0.004;
+  cards.forEach((c, k) => c.el.classList.toggle('dim', nRuns > 1 && focus !== 'both' && focus !== k));
+  if (camMode === 'cinematic') cinematic(t / TOTAL, dt, f); else controls.update();
+  composer.render();
+  if (!started) { started = true; msg.classList.add('hidden'); setTimeout(() => fade.classList.add('off'), 150); }
+}
+
+document.getElementById('finRes').innerHTML = R.runs.map(r =>
+  `<div style="color:${r.color}">${r.score[r.score.length - 1].toFixed(3)}<small>${r.name}</small></div>`).join('');
+camera.position.set(-10, 3, 8); frame();
+window.__unison = { setT: v => { t = v; }, setPlaying, setFocus, setCam, restart, TOTAL, get ended() { return ended; } };
+</script>
+</body>
+</html>
