@@ -41,6 +41,39 @@ All AI numbers are means over **100 random swarms never used in training**
 - On `split_long`, it beat the push on 72 of 100 swarms (paired difference
   +0.035 +/- 0.019), but its worst swarm scored 0.30, so it is not always reliable.
 
+### Human vs AI, head to head
+
+On the first 8 benchmark swarms (seeds 20000-20007, identical for everyone), compared
+swarm by swarm:
+
+| | Mean +/- 95% CI (t-based) |
+|---|---|
+| Straight push | 0.633 +/- 0.041 |
+| Human | 0.872 +/- 0.037 |
+| Practiced AI | 0.897 +/- 0.029 |
+
+The human beat the straight push on 8 of 8 swarms (+0.238 +/- 0.057). The AI minus the
+human is +0.026 +/- 0.053, with the AI higher on 6 of 8 swarms: **no clear difference
+at this sample size**. The honest summary is "roughly human-level". More swarms were
+not played; see the analysis below for why a larger gap is not expected.
+
+### Where the remaining loss goes
+
+`experiments/diagnose_loss.py` splits the loss (1 - score) on 100 unseen swarms:
+
+| Controller | Mean score | Bots never delivered | Unevenness between arms |
+|---|---|---|---|
+| Straight push | 0.641 | 0.320 | 0.038 |
+| Practiced AI | 0.897 | 0.055 | 0.048 |
+
+- The AI's undelivered bots are the slow ones (average speed factor 0.685 vs 1.022 for
+  delivered bots), which probably cannot beat the flow within 800 steps.
+- The arm unevenness is close to **chance level**: if every delivered bot picked an arm
+  by a fair coin flip, 300 bots would give about 0.045 (AI) and 0.038 (push). The
+  observed values are 0.048 and 0.038. This suggests neither controller decides which
+  *individual* bot goes to which arm, and that about 0.90 is near the best achievable
+  without doing so. This is an inference from matching numbers, not a proof.
+
 Tube task (no branch, steady flow), from `experiments/run_baselines.py`:
 random 0.000, straight push 0.888, wall-hugging 1.000. This task is too easy to be
 interesting, which is why the Y-branch split task exists.
@@ -117,10 +150,10 @@ Please read these before citing any number.
   this simulated game; how well it transfers to real robots is unknown.
 - **No medical claims.** This is not medical software, and it must not be used for
   treatment decisions.
-- **The human benchmark is weak.** It comes from 23 swarms, seven of which were
-  second attempts at swarms the player had seen, and it was measured on different
-  swarms than the AI's. "The practiced AI beats the human" is suggestive (0.897 vs
-  0.870) but not established; a head-to-head on identical swarms is still to do.
+- **The human comparison is small.** The 0.870 figure in the main table comes from 23
+  swarms (seven were second attempts at swarms the player had seen) and different
+  swarms than the AI's. The head-to-head above uses identical swarms but only 8 of
+  them, so it cannot separate a small difference. One person played.
 - **One training run.** The practiced model comes from a single run; variation across
   training runs has not been measured. The best model was picked on a small
   validation set, so the 100-swarm test, not the validation score, is the result.
@@ -133,6 +166,8 @@ Please read these before citing any number.
 ## Next steps
 
 - Validate the simulator against a published microrobot experiment.
-- Head-to-head human vs AI on identical swarms.
+- Test the chance-level hypothesis directly, and try to beat it: a controller that
+  uses bot differences to choose which bot goes to which arm would break the
+  ~0.90 plateau. This is the open question the project was built around.
 - Train across several time budgets; repeat training with different seeds.
 - Load real vessel geometry from open datasets; extend to 3D.
