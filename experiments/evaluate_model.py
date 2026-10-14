@@ -2,6 +2,7 @@
 
 Run:
   python experiments/evaluate_model.py
+  python experiments/evaluate_model.py --model results/es_split.npz
   python experiments/evaluate_model.py --scenario split_long   # a different time budget
   python experiments/evaluate_model.py --episodes 200 --seed 30000
 
@@ -12,12 +13,12 @@ more sensitive than comparing two separate averages.
 
 import argparse
 
-import joblib
 import numpy as np
 
 from unison.controllers import PushTowardTarget
 from unison.evaluate import evaluate
 from unison.imitation import LearnedController
+from unison.policy import NumpyPolicy
 from unison.scenarios import SCENARIOS
 
 ap = argparse.ArgumentParser()
@@ -30,7 +31,11 @@ ap.add_argument("--seed", type=int, default=20000,
 args = ap.parse_args()
 
 scenario = SCENARIOS[args.scenario]()
-ai = LearnedController(joblib.load(args.model))
+if args.model.endswith(".npz"):
+    ai = NumpyPolicy.load(args.model)                    # trained by train_es.py
+else:
+    import joblib
+    ai = LearnedController(joblib.load(args.model))      # trained by train_imitation.py
 
 print(f"Scoring on {args.episodes} fresh swarms (seeds {args.seed}..{args.seed + args.episodes - 1}), "
       f"scenario '{args.scenario}' ({scenario.steps} steps) ...", flush=True)

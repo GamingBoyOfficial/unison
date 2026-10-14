@@ -127,3 +127,25 @@ def test_playlog_keeps_latest_attempt_and_continues_seeds():
     assert [r["score"] for r in kept if r["seed"] == "5001"] == ["0.81"]
     assert next_seed_base(rows, "split", 5000) == 5002
     assert next_seed_base(rows, "tube", 5000) == 5000
+
+
+def test_numpy_policy_matches_the_sklearn_model_it_came_from():
+    import pytest
+    pytest.importorskip("sklearn")
+    from sklearn.neural_network import MLPRegressor
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from unison.policy import NumpyPolicy
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(200, 12))
+    y = np.tanh(X[:, :2])
+    model = make_pipeline(StandardScaler(), MLPRegressor(hidden_layer_sizes=(8, 8),
+                                                         max_iter=200, random_state=0)).fit(X, y)
+    policy = NumpyPolicy.from_sklearn(model)
+    for row in X[:20]:
+        want = model.predict(row[None, :])[0]
+        n = np.linalg.norm(want)
+        want = want / n if n > 1 else want
+        assert np.allclose(policy.act(row, None), want, atol=1e-9)
+    mutated = policy.with_params(policy.params + 0.1)
+    assert not np.allclose(mutated.act(X[0], None), policy.act(X[0], None))
