@@ -97,8 +97,25 @@ vessel tree by centerlines and radii:
   headroom to version 1). This is a design choice made for benchmark difficulty, not a
   measured physiological value.
 - Version 1 results above are unchanged and still reproducible with `split` and
-  `split_long`. **No AI or human results exist yet for `bifurcation`**; trained models
-  and recordings from version 1 do not transfer automatically.
+  `split_long`. Version 1 recordings do not replay on the new physics.
+
+### Results on `bifurcation`
+
+Means over **100 random swarms never used in training** (seeds 20000-20099), 95%
+confidence intervals:
+
+| | Mean +/- 95% CI | Worst | Best |
+|---|---|---|---|
+| Straight push | 0.608 +/- 0.007 | 0.520 | 0.680 |
+| **Practiced AI** | **0.830 +/- 0.005** | 0.727 | 0.880 |
+
+Paired difference (AI - push): **+0.222 +/- 0.008**; the AI beat the push on 100 of
+100 swarms, and its worst swarm beats the push's best.
+
+The AI was trained with `train_es.py` starting from the version-1 practiced model. That
+starting model scored 0.413 on the validation swarms in this geometry, *below* the
+straight push, so the gain comes from practice on the new shape and not from reuse of
+the earlier skill. No human benchmark was measured on `bifurcation`.
 
 ## How it works
 
@@ -180,6 +197,9 @@ Please read these before citing any number.
 - **One training run.** The practiced model comes from a single run; variation across
   training runs has not been measured. The best model was picked on a small
   validation set, so the 100-swarm test, not the validation score, is the result.
+- **`bifurcation` results come from one training run** and have no human baseline.
+  Its flow strength was tuned for benchmark difficulty (see above), so its scores are
+  not comparable with version 1's.
 - **Trained on one time budget.** The practiced model was trained only on 800-step
   episodes. On 1600 steps it works on average but occasionally fails badly
   (worst case 0.30).
@@ -193,7 +213,7 @@ Please read these before citing any number.
   uses bot differences to choose which bot goes to which arm would break the
   ~0.90 plateau. This is the open question the project was built around.
 - Train across several time budgets; repeat training with different seeds.
-- Train and evaluate on `bifurcation` (start from `results/es_split.npz` with
-  `train_es.py --model results/es_split.npz --scenario bifurcation`).
+- Measure a human benchmark on `bifurcation`; repeat practice with several random
+  seeds to measure run-to-run variation; run the loss diagnostic on the new model.
 - Load real vessel centerlines from open datasets into the vessel engine; extend to 3D.
 - A realistic blood model (shear-thinning viscosity, realistic heartbeat, cell crowding).
