@@ -82,6 +82,98 @@ class SplitTask:
         return [(self.target_x, self.target_x + 50.0, 0.0, self.y_top),
                 (self.target_x, self.target_x + 50.0, self.y_bottom, 0.0)]
 
+    def delivered_mask(self, pos: np.ndarray) -> np.ndarray:
+        return pos[:, 0] >= self.target_x
+
+    def in_main_mask(self, pos: np.ndarray) -> np.ndarray:
+        return pos[:, 0] < self.junction_x
+
+    def junction_point(self, arena=None):
+        return (self.junction_x, 0.0)
+
+    def target_rings(self, arena):
+        """Rings marking where each target zone begins: (centre, radius, direction)."""
+        rings = []
+        for r in arena.rects:
+            if r.xmax > self.target_x:
+                rings.append(((self.target_x, (r.ymin + r.ymax) / 2), (r.ymax - r.ymin) / 2, (1.0, 0.0)))
+        return rings
+
+    def status(self, pos: np.ndarray) -> str:
+        up, low = self.fractions(pos)
+        return (f"Upper: {up * 100:.0f}%   Lower: {low * 100:.0f}%   "
+                f"Split score: {self.score(pos):.2f}")
+
+
+class BifurcationTask:
+    """Split the swarm between the two daughter vessels of a VesselArena.
+
+    A bot counts as delivered to a daughter when it is within `target_length` of that
+    daughter's far end. Score = 2 * min(upper fraction, lower fraction), exactly as
+    in SplitTask, so scores are comparable across scenarios.
+    """
+
+    def __init__(self, arena, target_length: float = 1.4):
+        self.arena = arena
+        self.target_length = target_length
+        ends = {}
+        for tb in arena.tubes:
+            if tb.branch > 0:
+                ends[tb.branch] = tb                      # last tube of each daughter wins
+        self._ends = sorted(ends.values(), key=lambda tb: -tb.b[1])   # upper daughter first
+        if len(self._ends) != 2:
+            raise ValueError("BifurcationTask needs exactly two daughter branches")
+        self._centres = np.array([tb.b for tb in self._ends])
+        self._branches = [tb.branch for tb in self._ends]
+        root_last = max(i for i, tb in enumerate(arena.tubes) if tb.branch == 0)
+        self.junction = arena.tubes[root_last].b
+
+    def _near(self, pos):
+        d = [np.linalg.norm(pos - c, axis=1) <= self.target_length for c in self._centres]
+        return d[0], d[1]
+
+    def fractions(self, pos: np.ndarray) -> tuple[float, float]:
+        up, low = self._near(pos)
+        return float(np.mean(up)), float(np.mean(low))
+
+    def score(self, pos: np.ndarray) -> float:
+        up, low = self.fractions(pos)
+        return 2.0 * min(up, low)
+
+    def committed(self, pos: np.ndarray) -> tuple[float, float, float]:
+        br = self.arena.branch_of(pos)
+        return (float(np.mean(br == 0)), float(np.mean(br == self._branches[0])),
+                float(np.mean(br == self._branches[1])))
+
+    def observe(self, pos: np.ndarray) -> np.ndarray:
+        up, low = self.fractions(pos)
+        main, c_up, c_low = self.committed(pos)
+        return np.array([pos[:, 0].mean(), pos[:, 1].mean(), pos[:, 0].std(), pos[:, 1].std(),
+                         up, low, main, c_up, c_low])
+
+    def delivered_mask(self, pos: np.ndarray) -> np.ndarray:
+        up, low = self._near(pos)
+        return up | low
+
+    def in_main_mask(self, pos: np.ndarray) -> np.ndarray:
+        return self.arena.branch_of(pos) == 0
+
+    def junction_point(self, arena=None):
+        return tuple(self.junction)
+
+    def target_circles(self):
+        return [(float(c[0]), float(c[1]), self.target_length) for c in self._centres]
+
+    def target_rings(self, arena):
+        rings = []
+        for tb in self._ends:
+            a, b = np.array(tb.a), np.array(tb.b)
+            tan = (b - a) / np.linalg.norm(b - a)
+            c = b - tan * self.target_length
+            t = float(np.clip(np.dot(c - a, b - a) / np.dot(b - a, b - a), 0, 1))
+            rings.append(((float(c[0]), float(c[1])), tb.ra + t * (tb.rb - tb.ra), (float(tan[0]), float(tan[1]))))
+        return rings
+
     def status(self, pos: np.ndarray) -> str:
         up, low = self.fractions(pos)
         return (f"Upper: {up * 100:.0f}%   Lower: {low * 100:.0f}%   "

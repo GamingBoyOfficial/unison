@@ -10,6 +10,7 @@ Run:
   python experiments/diagnose_loss.py                              # the trained AI
   python experiments/diagnose_loss.py --model push                 # the straight push
   python experiments/diagnose_loss.py --scenario split_long
+  python experiments/diagnose_loss.py --scenario bifurcation --model push
 """
 
 import argparse
@@ -49,9 +50,9 @@ for seed in range(args.seed, args.seed + args.episodes):
     for i in range(scenario.steps):
         sim.step(ctrl.act(build_obs(task, sim, i / scenario.steps), rng))
     pos, speed = sim.pos, sim.bots.speed_factor
-    at_end = pos[:, 0] >= task.target_x
+    at_end = task.delivered_mask(pos)
     up, low = task.fractions(pos)
-    in_main = pos[:, 0] < task.junction_x
+    in_main = task.in_main_mask(pos)
     rows.append([task.score(pos), 1 - (up + low), abs(up - low),
                  float(np.mean(in_main)), float(np.mean(~in_main & ~at_end))])
     if at_end.any():

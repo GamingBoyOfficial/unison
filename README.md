@@ -78,6 +78,28 @@ Tube task (no branch, steady flow), from `experiments/run_baselines.py`:
 random 0.000, straight push 0.888, wall-hugging 1.000. This task is too easy to be
 interesting, which is why the Y-branch split task exists.
 
+## Version 2: a general vessel engine
+
+The first Y-branch is two rectangles with a flat divider, so the arms sit apart with
+a gap, unlike a real bifurcation. Version 2 (`src/unison/geometry.py`) describes any
+vessel tree by centerlines and radii:
+
+- Each piece is a **tapered tube**; the arena is the union of all tubes, so curves,
+  tapering and angled bifurcations with a **sharp carina** come from one mechanism.
+- Flow follows the geometry: each tube carries a share of the root flow rate, shares
+  split at each branch by **Murray's law** (proportional to radius cubed), and the
+  parabolic profile speeds up where a vessel narrows.
+- The `bifurcation` scenario is a parent vessel splitting into two curved, tapering
+  daughters at +/-35 degrees. Run it with `python experiments/play.py bifurcation`.
+- **Calibration, stated plainly:** with realistic geometry and the version-1 flow
+  strength, the straight push already scores 0.863, leaving no room to learn. The flow
+  speed was therefore raised to 0.8 so the straight push scores about 0.61 (similar
+  headroom to version 1). This is a design choice made for benchmark difficulty, not a
+  measured physiological value.
+- Version 1 results above are unchanged and still reproducible with `split` and
+  `split_long`. **No AI or human results exist yet for `bifurcation`**; trained models
+  and recordings from version 1 do not transfer automatically.
+
 ## How it works
 
 1. **Simulator.** Bots move by `own push x field + fluid flow + Brownian jitter`.
@@ -126,7 +148,8 @@ The human recordings used here are in `results/`.
 
 ```
 src/unison/
-  arena.py       swappable shapes + flow (box, tube, Y-branch), pulsing flow, wall drag
+  arena.py       swappable shapes + flow (box, tube, rectangle Y-branch), pulsing flow, wall drag
+  geometry.py    general vessel engine: tapered tubes, bifurcations, Murray's-law flow
   bots.py        bots with random traits
   simulator.py   one time step under one global field
   task.py        what counts as success (reach target, split)
@@ -170,4 +193,7 @@ Please read these before citing any number.
   uses bot differences to choose which bot goes to which arm would break the
   ~0.90 plateau. This is the open question the project was built around.
 - Train across several time budgets; repeat training with different seeds.
-- Load real vessel geometry from open datasets; extend to 3D.
+- Train and evaluate on `bifurcation` (start from `results/es_split.npz` with
+  `train_es.py --model results/es_split.npz --scenario bifurcation`).
+- Load real vessel centerlines from open datasets into the vessel engine; extend to 3D.
+- A realistic blood model (shear-thinning viscosity, realistic heartbeat, cell crowding).

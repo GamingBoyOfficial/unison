@@ -9,7 +9,9 @@ Run:
   python experiments/train_es.py
   python experiments/train_es.py --generations 100 --workers 8
 
-Needs a model from train_imitation.py first (results/imitation_split.joblib).
+Start from the copied model (results/imitation_split.joblib) or from any practiced
+model (.npz), for example to adapt a model to a new scenario:
+  python experiments/train_es.py --model results/es_split.npz --scenario bifurcation
 """
 
 import argparse
@@ -53,7 +55,10 @@ def main():
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    base = NumpyPolicy.from_sklearn(joblib.load(args.model))
+    if args.model.endswith(".npz"):
+        base = NumpyPolicy.load(args.model)               # start from an already-practiced model
+    else:
+        base = NumpyPolicy.from_sklearn(joblib.load(args.model))
     arrays = (base.mean, base.scale, base.shapes)
     out = Path(args.out or f"results/es_{args.scenario}.npz")
     out.parent.mkdir(exist_ok=True)

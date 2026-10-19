@@ -3,6 +3,7 @@
   python experiments/play.py          # the Y-branch split task
   python experiments/play.py split_long   # same, with a 1600-step time budget
   python experiments/play.py tube     # the straight tube
+  python experiments/play.py bifurcation   # curved, tapering daughters with a sharp carina
   python experiments/play.py split --benchmark
                                       # the exact swarms the AI is scored on (seeds 20000+),
                                       # for a fair human-vs-AI comparison
@@ -27,7 +28,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Circle, Rectangle
+
+from unison.arena import inside_mask
 
 from unison.bots import make_bots
 from unison.controllers import PushTowardTarget, SwitchController, WallHugging
@@ -47,6 +50,7 @@ AUTOPILOTS = {
     "split": [("Push toward target", PushTowardTarget()),
               ("Switch (0.4)", SwitchController(0.4))],
     "split_long": [("Push toward target", PushTowardTarget())],
+    "bifurcation": [("Push toward target", PushTowardTarget())],
     "tube": [("Push toward target", PushTowardTarget()),
              ("Wall-hugging", WallHugging())],
 }
@@ -95,13 +99,18 @@ def main():
     ax.set_ylim(ymin - 0.4, ymax + 0.4)
     ax.set_aspect("equal")
     ax.set_facecolor("#05070a")
-    for (x0, x1, y0, y1) in arena.shapes():
-        ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, facecolor="#161b22",
-                               edgecolor="#8b93a1", zorder=0))
-    for (x0, x1, y0, y1) in task.target_regions():
-        x1 = min(x1, xmax)
-        ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, facecolor="#1D9E75",
-                               alpha=0.3, zorder=1))
+    ext = (xmin - 0.3, xmax + 0.3, ymin - 0.4, ymax + 0.4)
+    mask = inside_mask(arena, ext)
+    ax.imshow(np.where(mask, 1.0, np.nan), extent=(ext[0], ext[1], ext[2], ext[3]), origin="lower",
+              cmap="Greys", vmin=0, vmax=6, alpha=0.9, zorder=0, interpolation="nearest")
+    if hasattr(task, "target_circles"):
+        for cx, cy, rad in task.target_circles():
+            ax.add_patch(Circle((cx, cy), rad, facecolor="#1D9E75", alpha=0.3, zorder=1))
+    else:
+        for (x0, x1, y0, y1) in task.target_regions():
+            x1 = min(x1, xmax)
+            ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, facecolor="#1D9E75",
+                                   alpha=0.3, zorder=1))
     ax.annotate("flow", xy=(0.8, ymax - 0.3), xytext=(2.6, ymax - 0.3), color="#EF9F27",
                 arrowprops=dict(arrowstyle="->", color="#EF9F27"), va="center")
     sim = state["sim"]

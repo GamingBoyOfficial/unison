@@ -158,3 +158,42 @@ def test_small_sample_confidence_interval_uses_t_not_1_96():
     sd = np.std([0.8, 0.9, 0.85, 0.95, 0.75, 0.9, 0.8], ddof=1)
     assert abs(half - 2.447 * sd / np.sqrt(7)) < 1e-12
     assert half > 1.96 * sd / np.sqrt(7)
+
+
+def test_vessel_arena_keeps_bots_inside_and_flows_toward_the_root():
+    from unison.geometry import bifurcation
+    a = bifurcation()
+    rng = np.random.default_rng(3)
+    lo_x, hi_x, lo_y, hi_y = a.bounds
+    pts = np.column_stack([rng.uniform(lo_x - 1, hi_x + 1, 3000), rng.uniform(lo_y - 1, hi_y + 1, 3000)])
+    out = a.contain(pts)
+    t, closest, d, r = a._locate(out)
+    assert (d - r).min(axis=0).max() <= 1e-9              # everything is inside after contain
+    assert np.allclose(a.contain(out), out)               # contain is idempotent
+    f = a.flow_at(np.array([[3.0, 0.0], [3.0, 0.999]]))
+    assert f[0, 0] < -0.5 and abs(f[1, 0]) < 0.01         # toward the root, ~zero at the wall
+
+
+def test_murray_flow_shares_add_up_at_the_branch():
+    from unison.geometry import bifurcation
+    a = bifurcation()
+    daughters = {tb.branch: tb.flow for tb in a.tubes if tb.branch > 0}
+    assert abs(sum(daughters.values()) - 1.0) < 1e-12 and len(daughters) == 2
+
+
+def test_bifurcation_task_scores_balance_like_the_split_task():
+    from unison.geometry import bifurcation
+    from unison.task import BifurcationTask
+    a = bifurcation()
+    task = BifurcationTask(a)
+    up, low = task._centres
+    both = np.array([up, low])
+    one_sided = np.array([up, up + 0.05])
+    assert task.score(both) == 1.0 and task.score(one_sided) == 0.0
+    assert task.observe(both).shape == (9,)
+
+
+def test_bifurcation_episode_runs_and_scores_between_0_and_1():
+    from unison.scenarios import SCENARIOS
+    score = run_episode(PushTowardTarget(), seed=4, scenario=SCENARIOS["bifurcation"](), steps=150)
+    assert 0.0 <= score <= 1.0

@@ -139,15 +139,40 @@ if (!R) {
 const nRuns = R.runs.length, N = R.nBots, nFrames = R.runs[0].frames.length;
 const SPF = 0.14;                       // real seconds per recorded frame at 1x
 const TOTAL = (nFrames - 1) * SPF;
-const CX = 6;                           // shift physics x so the vessel is centred
-const LANE = 8.4;                       // distance between the stacked vessels
+const A = R.arena;
+const [BX0, BX1, BY0, BY1] = A.bounds;
+const CX = (BX0 + BX1) / 2;             // shift physics x so the vessel is centred
+const LANE = (BY1 - BY0) + 3.4;         // distance between the stacked vessels
+const SCALE = Math.max(1, (BX1 - BX0) / 12);   // camera distances scale with vessel size
 const laneZ = k => (k - (nRuns - 1) / 2) * LANE;
-const A = R.arena, rects = A.rects.map(r => ({ ...r, w: (r.y1 - r.y0) / 2, yc: (r.y0 + r.y1) / 2 }));
 const simTime = f => f * R.stride * R.dt;
 const pulse = ts => (A.pulseAmp ? 1 + A.pulseAmp * Math.sin(2 * Math.PI * ts / A.pulsePeriod) : 1);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = t => t * t * (3 - 2 * t);
+
+// the vessel as tapered tubes: a = end nearer the root, b = end farther from it
+const tubes = A.tubes.map((t, i) => {
+  const dx = t.b[0] - t.a[0], dy = t.b[1] - t.a[1], len = Math.hypot(dx, dy);
+  return { ...t, i, len, tx: dx / len, ty: dy / len, nx: -dy / len, ny: dx / len, kids: [] };
+});
+tubes.forEach(t => { if (t.parent >= 0) tubes[t.parent].kids.push(t.i); });
+const leaves = tubes.filter(t => t.kids.length === 0), roots = tubes.filter(t => t.parent < 0);
+const radiusAt = (t, s) => lerp(t.ra, t.rb, s), umaxAt = (t, s) => lerp(t.umaxA, t.umaxB, s);
+
+// which tube is a physics point most central in (same idea the simulator uses)
+const loc = { i: 0, s: 0, r: 1 };
+function locate(x, y) {
+  let bi = 0, bs = 1e9, br = 1;
+  for (const t of tubes) {
+    const ax = t.a[0], ay = t.a[1];
+    const u = clamp(((x - ax) * (t.b[0] - ax) + (y - ay) * (t.b[1] - ay)) / (t.len * t.len), 0, 1);
+    const cx = ax + u * (t.b[0] - ax), cy = ay + u * (t.b[1] - ay);
+    const r = lerp(t.ra, t.rb, u), s = Math.hypot(x - cx, y - cy) / r;
+    if (s < bs) { bs = s; bi = t.i; br = r; }
+  }
+  loc.i = bi; loc.s = Math.min(bs, 1); loc.r = br; return loc;
+}
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('c');
@@ -217,44 +242,40 @@ const speedColor = s => {
 
 const lanes = [];
 const M = 1500;                                          // fluid tracers per lane
-const entryRects = (() => { const mx = Math.max(...rects.map(r => r.x1)); return rects.filter(r => r.x1 >= mx - 1e-6); })();
+const AXIS_Y = new THREE.Vector3(0, 1, 0), AXIS_Z = new THREE.Vector3(0, 0, 1);
+const tubeWeights = tubes.map(t => t.len * (t.ra + t.rb) / 2), weightSum = tubeWeights.reduce((a, b) => a + b, 0);
+function respawn(L, i) {                                 // a tracer that left the vessel re-enters at the far end
+  if (A.flowDir < 0) { const t = leaves[Math.floor(Math.random() * leaves.length)]; L.ti[i] = t.i; L.ts[i] = 1 - Math.random() * 0.08; }
+  else { const t = roots[Math.floor(Math.random() * roots.length)]; L.ti[i] = t.i; L.ts[i] = Math.random() * 0.08; }
+  L.tr[i] = (Math.random() * 2 - 1) * 0.95;
+}
 for (let k = 0; k < nRuns; k++) {
   const group = new THREE.Group(); group.position.z = laneZ(k); scene.add(group);
-  const tubes = [];
-  rects.forEach(r => {
-    const len = r.x1 - r.x0;
-    const tube = new THREE.Group(); tube.position.set((r.x0 + r.x1) / 2 - CX, 0, r.yc);
-    const geo = new THREE.CylinderGeometry(r.w, r.w, len, 64, 1, true); geo.rotateZ(Math.PI / 2);
-    tube.add(new THREE.Mesh(geo, glassMat));
-    const rim = new THREE.Mesh(geo, rimMat); rim.scale.set(1, 1.035, 1.035); tube.add(rim);
-    for (let x = -len / 2 + 0.55; x < len / 2 - 0.2; x += 0.6) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(r.w * 1.002, 0.014, 6, 72), ringMat);
-      ring.rotation.y = Math.PI / 2; ring.position.x = x; tube.add(ring);
+  const tubeGroups = [], joints = [];
+  tubes.forEach(t => {
+    const g = new THREE.Group();
+    g.position.set((t.a[0] + t.b[0]) / 2 - CX, 0, (t.a[1] + t.b[1]) / 2);
+    g.quaternion.setFromUnitVectors(AXIS_Y, new THREE.Vector3(t.tx, 0, t.ty));
+    const geo = new THREE.CylinderGeometry(t.rb, t.ra, t.len, 64, 1, true);
+    g.add(new THREE.Mesh(geo, glassMat));
+    const rim = new THREE.Mesh(geo, rimMat); rim.scale.set(1.035, 1, 1.035); g.add(rim);
+    for (let y = -t.len / 2 + 0.55; y < t.len / 2 - 0.2; y += 0.6) {
+      const rr = lerp(t.ra, t.rb, (y + t.len / 2) / t.len);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(rr * 1.002, 0.014, 6, 72), ringMat);
+      ring.rotation.x = Math.PI / 2; ring.position.y = y; g.add(ring);
     }
-    group.add(tube); tubes.push(tube);
-  });
-  rects.filter(r => r.x1 > R.targetX).forEach(r => {
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(r.w * 0.98, 56), targetMat);
-    disc.rotation.y = Math.PI / 2; disc.position.set(R.targetX - CX, 0, r.yc); group.add(disc);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(r.w * 0.98, 0.03, 8, 80), targetRingMat);
-    ring.rotation.y = Math.PI / 2; ring.position.copy(disc.position); group.add(ring);
-  });
-
-  // the solid divider between neighbouring arms
-  {
-    const arms = rects.filter(r => r.x0 > 0).sort((a, b) => a.yc - b.yc);
-    for (let a = 0; a + 1 < arms.length; a++) {
-      const lo = arms[a], hi = arms[a + 1], gap = hi.y0 - lo.y1;
-      if (gap <= 0) continue;
-      const x0 = Math.max(lo.x0, hi.x0), x1 = Math.min(lo.x1, hi.x1), h = Math.min(lo.w, hi.w) * 1.7;
-      const box = new THREE.BoxGeometry(x1 - x0, h, gap);
-      const m = new THREE.Mesh(box, new THREE.MeshBasicMaterial({ color: 0x0a1626, transparent: true, opacity: 0.55, depthWrite: false }));
-      m.position.set((x0 + x1) / 2 - CX, 0, (lo.y1 + hi.y0) / 2); group.add(m);
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box),
-        new THREE.LineBasicMaterial({ color: 0x5fb8ff, transparent: true, opacity: 0.5 }));
-      edges.position.copy(m.position); group.add(edges);
+    group.add(g); tubeGroups.push(g);
+    if (t.kids.length > 0) {                             // smooth the joint where tubes continue or branch
+      const sp = new THREE.Mesh(new THREE.SphereGeometry(t.rb, 40, 24), glassMat);
+      sp.position.set(t.b[0] - CX, 0, t.b[1]); group.add(sp); joints.push(sp);
     }
-  }
+  });
+  R.targets.forEach(tg => {                              // where each target zone begins
+    const q = new THREE.Quaternion().setFromUnitVectors(AXIS_Z, new THREE.Vector3(tg.dir[0], 0, tg.dir[1]));
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(tg.r * 0.98, 56), targetMat);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(tg.r * 0.98, 0.03, 8, 80), targetRingMat);
+    [disc, ring].forEach(m => { m.quaternion.copy(q); m.position.set(tg.c[0] - CX, 0, tg.c[1]); group.add(m); });
+  });
 
   // bots
   const bp = new Float32Array(N * 3), bc = new Float32Array(N * 3);
@@ -264,33 +285,20 @@ for (let k = 0; k < nRuns; k++) {
   bg.setAttribute('aColor', new THREE.BufferAttribute(bc, 3));
   const bots = new THREE.Points(bg, glowMaterial(0.17, 0.85)); bots.frustumCulled = false; bots.renderOrder = 2; group.add(bots);
 
-  // tracers: ride the fluid at fixed relative lateral position r in [-1, 1]
-  const tp = new Float32Array(M * 3), tc = new Float32Array(M * 3), tx = new Float32Array(M),
-        tr = new Float32Array(M), ti = new Uint8Array(M), th = new Float32Array(M);
-  const area = rects.map(r => (r.x1 - r.x0) * r.w);
-  const areaSum = area.reduce((a, b) => a + b, 0);
+  // tracers ride the fluid along each tube at a fixed lateral position lat in [-1, 1]
+  const tp = new Float32Array(M * 3), tc = new Float32Array(M * 3), ts = new Float32Array(M),
+        tr = new Float32Array(M), ti = new Uint16Array(M), th = new Float32Array(M);
   for (let i = 0; i < M; i++) {
-    let u = Math.random() * areaSum, q = 0; while (q < rects.length - 1 && u > area[q]) { u -= area[q]; q++; }
-    ti[i] = q; tx[i] = rects[q].x0 + Math.random() * (rects[q].x1 - rects[q].x0);
-    tr[i] = (Math.random() * 2 - 1) * 0.95; th[i] = Math.random() * 2 - 1;
+    let u = Math.random() * weightSum, q = 0; while (q < tubes.length - 1 && u > tubeWeights[q]) { u -= tubeWeights[q]; q++; }
+    ti[i] = q; ts[i] = Math.random(); tr[i] = (Math.random() * 2 - 1) * 0.95; th[i] = Math.random() * 2 - 1;
     const b = 0.55 + Math.random() * 0.45; tc.set([1.0 * b, 0.26 * b, 0.14 * b], i * 3);
   }
-  const tg = new THREE.BufferGeometry();
-  tg.setAttribute('position', new THREE.BufferAttribute(tp, 3));
-  tg.setAttribute('aColor', new THREE.BufferAttribute(tc, 3));
-  const tracers = new THREE.Points(tg, glowMaterial(0.05, 0.9)); tracers.frustumCulled = false; tracers.renderOrder = 1; group.add(tracers);
+  const tg2 = new THREE.BufferGeometry();
+  tg2.setAttribute('position', new THREE.BufferAttribute(tp, 3));
+  tg2.setAttribute('aColor', new THREE.BufferAttribute(tc, 3));
+  const tracers = new THREE.Points(tg2, glowMaterial(0.05, 0.9)); tracers.frustumCulled = false; tracers.renderOrder = 1; group.add(tracers);
 
-  lanes.push({ group, tubes, bp, bg, tp, tg, tx, tr, ti, th });
-}
-
-// nearest rectangle to a physics point (same rule the simulator uses)
-function ownerRect(x, y) {
-  let best = 0, bd = 1e9;
-  for (let q = 0; q < rects.length; q++) {
-    const r = rects[q], cx = clamp(x, r.x0, r.x1), cy = clamp(y, r.y0, r.y1), d = (cx - x) ** 2 + (cy - y) ** 2;
-    if (d < bd) { bd = d; best = q; }
-  }
-  return best;
+  lanes.push({ group, tubeGroups, joints, bp, bg, tp, tg: tg2, ts, tr, ti, th });
 }
 
 // ---------- post-processing ----------
@@ -405,8 +413,8 @@ function updateCentroid(f) {
 }
 function cinematic(p, dt, f) {
   const zc = updateCentroid(f), { o, j } = keyPose(clamp(p, 0, 1));
-  const junction = new THREE.Vector3(0, 0, zc), anchor = centroid.clone().lerp(junction, j);
-  const s = focus === 'both' && nRuns > 1 ? 1.25 : 1.0, ang = Math.sin(p * Math.PI) * 0.45 + (ended ? t * 0.05 : 0);
+  const junction = new THREE.Vector3(R.junction[0] - CX, 0, R.junction[1] + zc), anchor = centroid.clone().lerp(junction, j);
+  const s = (focus === 'both' && nRuns > 1 ? 1.25 : 1.0) * SCALE, ang = Math.sin(p * Math.PI) * 0.45 + (ended ? t * 0.05 : 0);
   const ox = o[0] * s, oz = o[2] * s, ca = Math.cos(ang), sa = Math.sin(ang);
   camGoal.set(anchor.x + ox * ca - oz * sa, anchor.y + o[1] * s, anchor.z + ox * sa + oz * ca);
   lookGoal.copy(anchor);
@@ -421,30 +429,32 @@ function updateLane(k, f, ts, dtSim) {
   const f0 = fr[i], f1 = fr[j2], p = L.bp;
   for (let n = 0; n < N; n++) {
     const x = lerp(f0[n * 2], f1[n * 2], a) / 100, y = lerp(f0[n * 2 + 1], f1[n * 2 + 1], a) / 100;
-    const r = rects[ownerRect(x, y)], lat = clamp((y - r.yc) / r.w, -1, 1);
-    p[n * 3] = x - CX; p[n * 3 + 1] = R.hfrac[n] * 0.82 * r.w * Math.sqrt(Math.max(0, 1 - lat * lat)); p[n * 3 + 2] = y;
+    const o = locate(x, y);
+    p[n * 3] = x - CX; p[n * 3 + 1] = R.hfrac[n] * 0.82 * o.r * Math.sqrt(Math.max(0, 1 - o.s * o.s)); p[n * 3 + 2] = y;
   }
   L.bg.attributes.position.needsUpdate = true;
 
   const pl = pulse(ts), q = L.tp;
-  for (let i2 = 0; i2 < M; i2++) {
-    let ri = L.ti[i2], r = rects[ri];
-    const u = A.flowDir * A.flowSpeed * r.flow * (1 - L.tr[i2] ** 2) * pl;
-    L.tx[i2] += u * dtSim;
-    if (L.tx[i2] < r.x0) {
-      const next = rects.findIndex(rr => rr.x0 < r.x0 && rr.x1 >= r.x0 - 1e-6);
-      if (next < 0) {                                  // left the vessel: re-enter at the far end
-        const e = entryRects[Math.floor(Math.random() * entryRects.length)];
-        ri = rects.indexOf(e); L.tx[i2] = e.x1 - Math.random() * 0.4; L.tr[i2] = (Math.random() * 2 - 1) * 0.95;
-      } else { ri = next; L.tx[i2] = Math.max(rects[next].x0, L.tx[i2]); }
-      L.ti[i2] = ri; r = rects[ri];
+  for (let n = 0; n < M; n++) {
+    let t = tubes[L.ti[n]];
+    const lat = L.tr[n], u = A.flowDir * umaxAt(t, L.ts[n]) * (1 - lat * lat) * pl;
+    let ns = L.ts[n] + u * dtSim / t.len;
+    if (ns < 0) {
+      if (t.parent < 0) { respawn(L, n); ns = L.ts[n]; } else { L.ti[n] = t.parent; ns = 1 - 1e-3; }
+    } else if (ns > 1) {
+      if (t.kids.length === 0) { respawn(L, n); ns = L.ts[n]; }
+      else { L.ti[n] = t.kids[Math.floor(Math.random() * t.kids.length)]; ns = 1e-3; }
     }
-    const lat = L.tr[i2], hy = L.th[i2] * 0.85 * r.w * Math.sqrt(Math.max(0, 1 - lat * lat));
-    q[i2 * 3] = L.tx[i2] - CX; q[i2 * 3 + 1] = hy; q[i2 * 3 + 2] = r.yc + lat * r.w;
+    L.ts[n] = ns; t = tubes[L.ti[n]];
+    const r = radiusAt(t, ns), cx = t.a[0] + ns * (t.b[0] - t.a[0]), cy = t.a[1] + ns * (t.b[1] - t.a[1]), l2 = L.tr[n];
+    q[n * 3] = cx + t.nx * l2 * r - CX;
+    q[n * 3 + 1] = L.th[n] * 0.85 * r * Math.sqrt(Math.max(0, 1 - l2 * l2));
+    q[n * 3 + 2] = cy + t.ny * l2 * r;
   }
   L.tg.attributes.position.needsUpdate = true;
   const sc = 1 + 0.08 * (pl - 1);
-  L.tubes.forEach(tb => tb.scale.set(1, sc, sc));
+  L.tubeGroups.forEach(g => g.scale.set(sc, 1, sc));
+  L.joints.forEach(j => j.scale.setScalar(sc));
 }
 
 // ---------- main loop ----------

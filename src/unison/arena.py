@@ -47,6 +47,18 @@ class Arena(ABC):
         return [(xmin, xmax, ymin, ymax)]
 
 
+def inside_mask(arena: Arena, extent, res: int = 400) -> np.ndarray:
+    """Boolean image of where the arena is (True = fluid). Works for every arena,
+    because a point is inside exactly when contain() leaves it unchanged."""
+    x0, x1, y0, y1 = extent
+    xs = np.linspace(x0, x1, res)
+    ys = np.linspace(y0, y1, max(2, int(res * (y1 - y0) / (x1 - x0))))
+    gx, gy = np.meshgrid(xs, ys)
+    pts = np.column_stack([gx.ravel(), gy.ravel()])
+    inside = np.abs(arena.contain(pts) - pts).max(axis=1) < 1e-9
+    return inside.reshape(gx.shape)
+
+
 def _pulse(amp: float, period: float, t: float) -> float:
     return 1.0 + amp * np.sin(2.0 * np.pi * t / period) if amp else 1.0
 
@@ -195,6 +207,18 @@ class RectUnionArena(Arena):
 
     def pulse_phase(self, t):
         return _phase(self.pulse_amp, self.pulse_period, t)
+
+    def tube_layout(self):
+        """Channels in the plain tube form the 3D viewer reads."""
+        out = []
+        for k, r in enumerate(self.rects):
+            yc, w = (r.ymin + r.ymax) / 2.0, (r.ymax - r.ymin) / 2.0
+            parent = next((j for j, o in enumerate(self.rects)
+                           if j != k and abs(o.xmax - r.xmin) < 1e-9), -1)
+            u = self.flow_speed * r.flow_scale
+            out.append(dict(a=[r.xmin, yc], b=[r.xmax, yc], ra=w, rb=w,
+                            parent=parent, umaxA=u, umaxB=u))
+        return out
 
 
 def y_branch(flow_speed: float = 0.6, pulse_amp: float = 0.3,

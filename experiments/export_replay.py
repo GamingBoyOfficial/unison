@@ -6,6 +6,7 @@ can show them side by side.
 Run:
   python experiments/export_replay.py
   python experiments/export_replay.py --seed 20003 --model results/es_split.npz
+  python experiments/export_replay.py --scenario bifurcation
   python experiments/export_replay.py --scenario split_long --stride 8
 
 Then open the viewer:
@@ -19,7 +20,6 @@ from pathlib import Path
 
 import numpy as np
 
-from unison.arena import RectUnionArena
 from unison.bots import make_bots
 from unison.controllers import PushTowardTarget
 from unison.evaluate import build_obs
@@ -28,7 +28,7 @@ from unison.scenarios import SCENARIOS
 from unison.simulator import Simulator
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--scenario", default="split", choices=["split", "split_long"])
+ap.add_argument("--scenario", default="split", choices=sorted(SCENARIOS))
 ap.add_argument("--model", default="results/es_split.npz", help="trained .npz policy")
 ap.add_argument("--seed", type=int, default=20003)
 ap.add_argument("--stride", type=int, default=4, help="record every Nth step")
@@ -37,9 +37,9 @@ args = ap.parse_args()
 
 scenario = SCENARIOS[args.scenario]()
 arena = scenario.make_arena()
-if not isinstance(arena, RectUnionArena):
-    raise SystemExit("The viewer currently supports the Y-branch scenarios only.")
 task = scenario.make_task(arena)
+if not (hasattr(arena, "tube_layout") and hasattr(task, "target_rings")):
+    raise SystemExit("The viewer supports the Y-branch and bifurcation scenarios only.")
 
 drivers = [("Straight push", PushTowardTarget(), "#ff9f43")]
 if Path(args.model).exists():
@@ -77,15 +77,15 @@ for name, ctrl, color in drivers:
                      score=scores, field=field))
     print(f"{name}: final score {scores[-1]:.3f}")
 
+bx0, bx1, by0, by1 = arena.bounds
 data = dict(
     scenario=args.scenario, seed=args.seed, steps=scenario.steps, dt=sim.dt,
     stride=args.stride, nBots=len(speed), speed=speed, hfrac=hfrac,
     arena=dict(
-        rects=[dict(x0=r.xmin, x1=r.xmax, y0=r.ymin, y1=r.ymax, flow=r.flow_scale)
-               for r in arena.rects],
-        flowSpeed=arena.flow_speed, flowDir=arena.flow_direction,
-        pulseAmp=arena.pulse_amp, pulsePeriod=arena.pulse_period),
-    targetX=task.target_x, runs=runs)
+        tubes=arena.tube_layout(), bounds=[bx0, bx1, by0, by1],
+        flowDir=arena.flow_direction, pulseAmp=arena.pulse_amp, pulsePeriod=arena.pulse_period),
+    targets=[dict(c=list(c), r=float(r), dir=list(d)) for c, r, d in task.target_rings(arena)],
+    junction=list(task.junction_point(arena)), runs=runs)
 
 out = Path(args.out)
 out.parent.mkdir(parents=True, exist_ok=True)
