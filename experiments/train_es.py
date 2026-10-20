@@ -8,6 +8,7 @@ Uses all your CPU cores. Press Ctrl+C any time: the best model so far is saved.
 Run:
   python experiments/train_es.py
   python experiments/train_es.py --generations 100 --workers 8
+  python experiments/train_es.py --scenario bifurcation --seed 1   # an independent run
 
 Start from the copied model (results/imitation_split.joblib) or from any practiced
 model (.npz), for example to adapt a model to a new scenario:
@@ -52,6 +53,8 @@ def main():
     ap.add_argument("--val-swarms", type=int, default=20)
     ap.add_argument("--eval-every", type=int, default=5)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    ap.add_argument("--seed", type=int, default=0,
+                    help="random seed for the mutations; use different values for independent runs")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -60,9 +63,10 @@ def main():
     else:
         base = NumpyPolicy.from_sklearn(joblib.load(args.model))
     arrays = (base.mean, base.scale, base.shapes)
-    out = Path(args.out or f"results/es_{args.scenario}.npz")
+    suffix = "" if args.seed == 0 else f"_seed{args.seed}"
+    out = Path(args.out or f"results/es_{args.scenario}{suffix}.npz")
     out.parent.mkdir(exist_ok=True)
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(args.seed)
     theta = base.params.copy()
     d = theta.size
     val_seeds = list(range(VAL_SEED, VAL_SEED + args.val_swarms))

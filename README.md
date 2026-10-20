@@ -107,10 +107,28 @@ confidence intervals:
 | | Mean +/- 95% CI | Worst | Best |
 |---|---|---|---|
 | Straight push | 0.608 +/- 0.007 | 0.520 | 0.680 |
-| **Practiced AI** | **0.830 +/- 0.005** | 0.727 | 0.880 |
+| **Practiced AI, first run** | **0.830 +/- 0.005** | 0.727 | 0.880 |
 
 Paired difference (AI - push): **+0.222 +/- 0.008**; the AI beat the push on 100 of
 100 swarms, and its worst swarm beats the push's best.
+
+**Across five independent training runs** (mutation seeds 0-4, scored on the same 100
+swarms with `experiments/evaluate_seeds.py`):
+
+| Run | Mean +/- 95% CI (swarm sampling) |
+|---|---|
+| seed 0 | 0.830 +/- 0.005 |
+| seed 1 | 0.810 +/- 0.003 |
+| seed 2 | 0.801 +/- 0.003 |
+| seed 3 | 0.829 +/- 0.005 |
+| seed 4 | 0.828 +/- 0.004 |
+
+Mean **0.820**, standard deviation across runs 0.013, range 0.801 to 0.830. Every run
+beat the straight push (0.608) by at least +0.194. The differences between runs are
+larger than the swarm-sampling intervals, so run-to-run luck is the main source of
+uncertainty; the headline figure for the AI on `bifurcation` is **0.82**, not the best
+run. The five runs share the same starting model and practice swarms and differ only
+in their random mutations, so this spread likely understates the true variation.
 
 The AI was trained with `train_es.py` starting from the version-1 practiced model. That
 starting model scored 0.413 on the validation swarms in this geometry, *below* the
@@ -197,7 +215,8 @@ Please read these before citing any number.
 - **One training run.** The practiced model comes from a single run; variation across
   training runs has not been measured. The best model was picked on a small
   validation set, so the 100-swarm test, not the validation score, is the result.
-- **`bifurcation` results come from one training run** and have no human baseline.
+- **`bifurcation` has no human baseline**, and its five training runs share a starting
+  model and practice swarms (they differ only in mutation seed).
   Its flow strength was tuned for benchmark difficulty (see above), so its scores are
   not comparable with version 1's.
 - **Trained on one time budget.** The practiced model was trained only on 800-step
@@ -213,7 +232,7 @@ Please read these before citing any number.
   uses bot differences to choose which bot goes to which arm would break the
   ~0.90 plateau. This is the open question the project was built around.
 - Train across several time budgets; repeat training with different seeds.
-- Measure a human benchmark on `bifurcation`; repeat practice with several random
-  seeds to measure run-to-run variation; run the loss diagnostic on the new model.
+- Measure a human benchmark on `bifurcation`; vary the starting model and practice
+  swarms across runs; run the loss diagnostic on the new model.
 - Load real vessel centerlines from open datasets into the vessel engine; extend to 3D.
 - A realistic blood model (shear-thinning viscosity, realistic heartbeat, cell crowding).
