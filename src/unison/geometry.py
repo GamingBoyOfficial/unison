@@ -156,7 +156,7 @@ class VesselArena(Arena):
     def tube_layout(self):
         """Tubes in a plain form for the 3D viewer."""
         out = []
-        for k, tb in enumerate(self.tubes):
+        for tb in self.tubes:
             qa = 1.5 * self._q0 * tb.flow / (2.0 * tb.ra)
             qb = 1.5 * self._q0 * tb.flow / (2.0 * tb.rb)
             out.append(dict(a=list(tb.a), b=list(tb.b), ra=tb.ra, rb=tb.rb,

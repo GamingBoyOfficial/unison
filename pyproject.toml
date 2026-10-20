@@ -4,14 +4,34 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unison"
-version = "0.3.0"
+version = "0.4.0"
 description = "Learning to steer imperfect microrobot swarms with one global field."
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = ["numpy", "matplotlib"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
+]
 
 [project.optional-dependencies]
-dev = ["pytest"]
-learn = ["scikit-learn"]
+dev = ["pytest", "ruff"]
+learn = ["scikit-learn", "joblib"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::sklearn.exceptions.ConvergenceWarning"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP"]
+ignore = ["E741", "B905", "UP037"]

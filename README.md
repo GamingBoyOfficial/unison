@@ -1,5 +1,7 @@
 # Unison
 
+![CI](https://github.com/GamingBoyOfficial/unison/actions/workflows/ci.yml/badge.svg)
+
 **Learning to steer imperfect microrobot swarms with one global field.**
 
 Real microrobots have no batteries. They are powered and steered from outside the
@@ -236,3 +238,7 @@ Please read these before citing any number.
   swarms across runs; run the loss diagnostic on the new model.
 - Load real vessel centerlines from open datasets into the vessel engine; extend to 3D.
 - A realistic blood model (shear-thinning viscosity, realistic heartbeat, cell crowding).
+
+## License
+
+MIT. See `LICENSE`.

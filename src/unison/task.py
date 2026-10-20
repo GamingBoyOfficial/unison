@@ -171,7 +171,8 @@ class BifurcationTask:
             tan = (b - a) / np.linalg.norm(b - a)
             c = b - tan * self.target_length
             t = float(np.clip(np.dot(c - a, b - a) / np.dot(b - a, b - a), 0, 1))
-            rings.append(((float(c[0]), float(c[1])), tb.ra + t * (tb.rb - tb.ra), (float(tan[0]), float(tan[1]))))
+            radius = tb.ra + t * (tb.rb - tb.ra)
+            rings.append(((float(c[0]), float(c[1])), radius, (float(tan[0]), float(tan[1]))))
         return rings
 
     def status(self, pos: np.ndarray) -> str:

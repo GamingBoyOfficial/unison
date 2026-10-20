@@ -20,7 +20,6 @@ from unison.controllers import PushTowardTarget
 from unison.evaluate import evaluate
 from unison.policy import NumpyPolicy
 from unison.scenarios import SCENARIOS
-from unison.stats import mean_ci
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--scenario", default="bifurcation")
@@ -28,7 +27,8 @@ ap.add_argument("--episodes", type=int, default=100)
 ap.add_argument("--seed", type=int, default=20000, help="first evaluation swarm seed")
 args = ap.parse_args()
 
-files = sorted(glob.glob(f"results/es_{args.scenario}.npz") + glob.glob(f"results/es_{args.scenario}_seed*.npz"),
+found = glob.glob(f"results/es_{args.scenario}.npz") + glob.glob(f"results/es_{args.scenario}_seed*.npz")
+files = sorted(found,
                key=lambda f: int(re.search(r"_seed(\d+)", f).group(1)) if "_seed" in f else 0)
 if len(files) < 2:
     raise SystemExit(f"Found {len(files)} trained model(s) for '{args.scenario}'. Train more with:\n"
@@ -44,8 +44,10 @@ print("-" * 63)
 for f in files:
     r = evaluate(NumpyPolicy.load(f), scenario, n_episodes=args.episodes, base_seed=args.seed)
     means.append(r.mean)
-    print(f"{Path(f).name:<34}{r.mean:>8.3f}{'  +/- ' + format(r.ci95, '.3f'):>12}{r.scores.min():>9.3f}", flush=True)
-print(f"{'Straight push (reference)':<34}{push.mean:>8.3f}{'  +/- ' + format(push.ci95, '.3f'):>12}{push.scores.min():>9.3f}")
+    ci = "  +/- " + format(r.ci95, ".3f")
+    print(f"{Path(f).name:<34}{r.mean:>8.3f}{ci:>12}{r.scores.min():>9.3f}", flush=True)
+push_ci = "  +/- " + format(push.ci95, ".3f")
+print(f"{'Straight push (reference)':<34}{push.mean:>8.3f}{push_ci:>12}{push.scores.min():>9.3f}")
 
 m = np.array(means)
 print(f"\nAcross {len(m)} training runs: mean {m.mean():.3f}, std {m.std(ddof=1):.3f}, "

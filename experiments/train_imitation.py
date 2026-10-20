@@ -10,6 +10,7 @@ Needs:  python -m pip install scikit-learn
 import argparse
 from pathlib import Path
 
+import joblib
 import numpy as np
 from sklearn.neural_network import MLPRegressor
 from sklearn.pipeline import make_pipeline
@@ -80,6 +81,5 @@ print(f"{'You (the demos it learned)':<30}{human.mean():>12.3f}")
 
 out = Path("results")
 out.mkdir(exist_ok=True)
-import joblib
 joblib.dump(model, out / f"imitation_{args.scenario}.joblib")
 print(f"\nSaved model to results/imitation_{args.scenario}.joblib")

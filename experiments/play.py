@@ -142,7 +142,8 @@ def main():
                     w.writerow([name, state["seed"], f"{score:.4f}"])
                 np.savetxt(RESULTS / f"bench_actions_{name}_{state['seed']}.csv",
                            np.array(state["actions"]), delimiter=",", header="fx,fy", comments="")
-                state["final"] = f"FINAL SCORE {score:.3f}  (benchmark swarm {state['seed']} logged)  press R for next"
+                state["final"] = (f"FINAL SCORE {score:.3f}  (benchmark swarm {state['seed']} logged)"
+                                  "  press R for next")
             else:
                 state["final"] = f"FINAL SCORE {score:.3f}  (driver changed, not logged)"
             return
