@@ -20,12 +20,10 @@ from pathlib import Path
 
 import numpy as np
 
-from unison.bots import make_bots
 from unison.controllers import PushTowardTarget
 from unison.evaluate import build_obs
 from unison.policy import NumpyPolicy
 from unison.scenarios import SCENARIOS
-from unison.simulator import Simulator
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--scenario", default="split", choices=sorted(SCENARIOS))
@@ -57,11 +55,11 @@ bot_rng = np.random.default_rng(args.seed + 999)
 runs, speed, hfrac = [], None, None
 for name, ctrl, color in drivers:
     rng = np.random.default_rng(args.seed)
-    bots = make_bots(rng, start_center=scenario.start_center)
-    sim = Simulator(arena, bots, rng)
+    sim = scenario.new_sim(rng, arena)
+    bots = sim.bots
     if speed is None:
         speed = np.round(bots.speed_factor, 3).tolist()
-        hfrac = np.round(bot_rng.uniform(-1, 1, bots.n), 3).tolist()
+        hfrac = np.round(bot_rng.uniform(-1, 1, len(bots.speed_factor)), 3).tolist()
     frames, ups, lows, scores, field = [q(sim.pos)], [0.0], [0.0], [0.0], [[0.0, 0.0]]
     for i in range(scenario.steps):
         f = ctrl.act(build_obs(task, sim, i / scenario.steps), rng)

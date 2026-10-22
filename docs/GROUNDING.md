@@ -130,44 +130,65 @@ the supplementary information.
   predictions about real swarms.
 - "AI beats simple rules" comparisons are comparisons inside the simulator.
 
-## Proposed physics for a version 3 (grounded in source 1)
+## Version 3 physics (implemented: scenario `rolling`)
 
-- A swarm has a finite radius a. When it rolls on the wall, its centre is about a (plus a
-  micrometre-scale gap) from the wall.
-- Propulsion exists only in contact with the wall. Away from the wall a swarm is carried
-  by the flow.
-- Along the wall: speed falls with the imposed flow with a fitted slope of about -0.1 to
-  -0.3 (Fig. 5b), not -1, so a swarm is only weakly coupled to the plotted flow. A model of
-  the form speed = V0 - kappa x flow is supported by the plot, while traction holds.
-- Traction limit: above a critical local flow the swarm is swept away.
-- Remove the unsupported wall drag.
-- Parameters (rolling speed, critical flow) to be set from the paper's Fig. 5 data, not
-  tuned for benchmark difficulty.
+`src/unison/rolling.py`. Units: length 1 = about 75 micrometres, speed 1 = about 100
+micrometres/s, time 1 = about 0.75 s.
 
-This changes the physics, so trained models and numbers from earlier versions do not
-carry over.
+- A bot is a finite-size swarm (radius lognormal around 0.27 = about 20 micrometres).
+- **Propulsion only in wall contact.** Away from the wall a swarm has no propulsion and is
+  carried by the flow. Rolling follows the wall's own direction (the field's component
+  along the wall).
+- In contact, speed = V0 - kappa x (local flow). V0 rises with swarm radius and saturates
+  (shape from Fig. 5c); kappa is set so the slope against the *centre-line* flow in a
+  reference capillary is 0.15 (between Fig. 5b's two fits, about 0.09 and 0.3).
+- **Traction limit.** When the local flow exceeds about 1.1 times the flow at which
+  rolling stalls, grip is lost and the swarm is swept away.
+- The unsupported "sticky wall" drag is removed in this scenario.
+- Flow regime: centre-line 0.5 mm/s (within the paper's 0.2-1.2 mm/s), pulsing +/-30%.
 
-## Proposed validation test (to agree before running)
+**Assumptions in this version that the paper does not give** (all tunable, none
+measured here):
+- The controller's *lateral* command (a push across the vessel, letting it choose which
+  wall to press against). The paper's acoustic transducer is fixed; this is an extension.
+- The always-on acoustic pull toward the nearest wall, set to 3.0 (about 300 micrometres/s).
+  It was **tuned**: at 1.0, swarms detached where the wall bends away at the bifurcation
+  and the flow flushed them back; 3.0 held them; 6.0 pinned them too strongly. The paper
+  says the acoustic force presses the swarm to the wall but its text read gives no value.
+- Contact range, the spread in magnetic response (15%), the swarm-size spread, the
+  pulsing waveform, and the jitter (0.01).
 
-Reproduce **upstream speed versus imposed flow** (Fig. 5b of source 1) with the version 3
-model.
+## Validation result (script: `experiments/validate_rolling.py`)
 
-- Calibrate free parameters on **one** data set (for example the 15 micrometre swarm).
-- Test the prediction on a **different** one (for example the 40 micrometre swarm, or the
-  fixed-flow dependence on swarm size in Fig. 5c) without refitting.
-- Pass/fail criteria, written **before** running anything (coarse, because the paper's
-  two panels disagree):
-  1. Upstream speed falls with flow, roughly linearly.
-  2. The flow at which upstream motion stops is about 5-12 times the still-water speed;
-     accept within a factor of two either side (2.5-22).
-  3. At fixed flow, larger swarms move faster; the paper shows roughly 4-5 times between
-     15 and 60 micrometre radius, accept 2-6.
-- The current simulator is expected to fail criterion 2 (its flow is much gentler and its
-  walls slow bots down). Report the result whichever way it goes.
+A single swarm rolls upstream along the wall of a straight 150 micrometre capillary
+against a steady flow; flow is swept and upstream speed recorded. Criteria were fixed
+before the first run.
 
-Still needed: the supplementary information (fit parameters) and clarity on what flow
-velocity the plot's axes represent; without it the two panels cannot be used to calibrate
-and test each other.
+| Criterion | Result | Note |
+|---|---|---|
+| 1. Speed falls with flow, roughly linearly | PASS (R^2 about 1.0) | Largely **by construction**: the slope was set from Fig. 5b. |
+| 2. Stopping flow is 2.5-22 times the still-water speed | PASS (5.6-5.9) | Largely **by construction**, through the same slope. |
+| 3. At 0.2 mm/s a 60 micrometre swarm is 2-6 times faster than a 15 micrometre one | **FAIL** (1.21) | The only independent check. |
+
+Further notes:
+- The model's zero-crossing is at 0.74-0.90 mm/s of centre-line flow; the paper's fits
+  reach zero near 1.2-1.3 mm/s. Right order of magnitude, but 30-40% low.
+- Modelled still-water speeds are 133-152 micrometres/s; the paper's plot shows about
+  110-155 at low flow in panel b but over 200 in panel c's no-flow model.
+- The model cannot reproduce the strong size dependence in Fig. 5c. Adding a
+  size-dependent flow coupling fitted to that panel would make criterion 3 pass, but
+  that would be curve fitting, and panels b and c already disagree with each other
+  (panel b has larger swarms *more* sensitive to flow, panel c less). This was not done.
+
+**What this does and does not show.** The model reproduces the *shape* of the measured
+relationship (monotone, near-linear decline to a stopping flow of the right order) after
+calibrating one slope. It does not predict the size dependence. It is therefore
+"consistent with one published experiment in its main trend", not validated against it.
+
+## Possible next tests
+
+- Obtain the supplementary information (fit parameters) to resolve the two panels.
+- Test against a second, independent data set (for example source 2) without refitting.
 
 ## Known limits
 

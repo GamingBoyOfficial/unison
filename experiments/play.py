@@ -4,6 +4,7 @@
   python experiments/play.py split_long   # same, with a 1600-step time budget
   python experiments/play.py tube     # the straight tube
   python experiments/play.py bifurcation   # curved, tapering daughters with a sharp carina
+  python experiments/play.py rolling       # version 3: finite-size swarms that roll along the wall
   python experiments/play.py split --benchmark
                                       # the exact swarms the AI is scored on (seeds 20000+),
                                       # for a fair human-vs-AI comparison
@@ -28,16 +29,15 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
+from matplotlib.collections import EllipseCollection
 from matplotlib.patches import Circle, Rectangle
 
 from unison.arena import inside_mask
 
-from unison.bots import make_bots
 from unison.controllers import PushTowardTarget, SwitchController, WallHugging
 from unison.evaluate import build_obs
 from unison.playlog import next_seed_base, read_rows
 from unison.scenarios import SCENARIOS
-from unison.simulator import Simulator
 
 RESULTS = Path("results")
 SEED_BASE = 5000          # play episodes use their own seeds, apart from evaluation
@@ -51,6 +51,7 @@ AUTOPILOTS = {
               ("Switch (0.4)", SwitchController(0.4))],
     "split_long": [("Push toward target", PushTowardTarget())],
     "bifurcation": [("Push toward target", PushTowardTarget())],
+    "rolling": [("Push toward target", PushTowardTarget())],
     "tube": [("Push toward target", PushTowardTarget()),
              ("Wall-hugging", WallHugging())],
 }
@@ -88,8 +89,7 @@ def main():
         else:
             state["seed"] = seed_base + state["episode"]
         rng = np.random.default_rng(state["seed"])
-        bots = make_bots(rng, start_center=scenario.start_center)
-        state["sim"] = Simulator(arena, bots, rng)
+        state["sim"] = scenario.new_sim(rng, arena)
         state.update(step=0, actions=[], used=set(), done=False, final="")
 
     new_episode()
@@ -117,6 +117,31 @@ def main():
     scat = ax.scatter(sim.pos[:, 0], sim.pos[:, 1], c=sim.bots.speed_factor,
                       cmap="cool", s=10, vmin=0.7, vmax=1.3, zorder=2)
     title = ax.set_title("")
+    discs = {"fill": None, "edge": None}
+
+    def make_discs():
+        """Rolling swarms are drawn at their real size: a swarm's edge, not its centre, touches
+        the wall, so the dots alone would seem to stop at an invisible wall."""
+        for key in ("fill", "edge"):
+            if discs[key] is not None:
+                discs[key].remove()
+        bots = state["sim"].bots
+        if bots.radius is None:
+            return
+        w = 2.0 * bots.radius
+        kw = dict(units="xy", offsets=state["sim"].pos, offset_transform=ax.transData)
+        discs["fill"] = EllipseCollection(w, w, 0, cmap="cool", linewidths=0, zorder=2, **kw)
+        discs["fill"].set_array(bots.speed_factor)
+        discs["fill"].set_clim(0.7, 1.3)
+        discs["fill"].set_alpha(0.3)
+        discs["edge"] = EllipseCollection(w, w, 0, facecolors="none", linewidths=0.8, zorder=3, **kw)
+        ax.add_collection(discs["fill"])
+        ax.add_collection(discs["edge"])
+
+    make_discs()
+    if state["sim"].bots.radius is not None:
+        fig.text(0.5, 0.05, "Circles show the real swarm size.  White outline = rolling on the wall,  "
+                 "orange = carried by the flow.", ha="center", color="#8b93a1")
     fig.text(0.5, 0.015, "Arrows/WASD: steer    C: change driver    R: new episode    Q: quit",
              ha="center", color="#8b93a1")
 
@@ -173,6 +198,7 @@ def main():
         elif e.key == "r":
             new_episode()
             scat.set_array(state["sim"].bots.speed_factor)
+            make_discs()
         elif e.key == "q":
             plt.close(fig)
 
@@ -192,8 +218,16 @@ def main():
             if state["step"] >= scenario.steps:
                 finish()
         scat.set_offsets(s.pos)
+        grip_note = ""
+        if discs["fill"] is not None:
+            grip = s.grip()
+            discs["fill"].set_offsets(s.pos)
+            discs["edge"].set_offsets(s.pos)
+            discs["edge"].set_edgecolor(np.where((grip > 0.5)[:, None], [[1.0, 1.0, 1.0, 0.9]],
+                                                 [[0.94, 0.62, 0.15, 0.9]]))
+            grip_note = f"   rolling on the wall: {np.mean(grip > 0.5) * 100:.0f}%"
         tag = f"BENCHMARK swarm {state['seed']}   " if benchmark else ""
-        head = f"{tag}[{label}]  step {state['step']}/{scenario.steps}   {task.status(s.pos)}"
+        head = f"{tag}[{label}]  step {state['step']}/{scenario.steps}   {task.status(s.pos)}{grip_note}"
         title.set_text(head + ("\n" + state["final"] if state["done"] else ""))
         return scat, title
 

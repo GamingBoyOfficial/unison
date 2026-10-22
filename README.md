@@ -137,6 +137,32 @@ starting model scored 0.413 on the validation swarms in this geometry, *below* t
 straight push, so the gain comes from practice on the new shape and not from reuse of
 the earlier skill. No human benchmark was measured on `bifurcation`.
 
+## Version 3: rolling swarms, closer to the published mechanism
+
+Version 2's point bots could be pushed anywhere and slowed by "sticky" walls, both at odds
+with the swarm mechanism in Ahmed et al. (arXiv 2005.12703). The `rolling` scenario
+(`src/unison/rolling.py`, details in `docs/GROUNDING.md`) uses finite-size swarms that
+**roll only in contact with the wall**, move at roughly *V0 minus kappa times the local
+flow*, and **lose grip** when the flow is too strong, in the experimental flow regime
+(centre-line 0.5 mm/s, pulsing). Run it with `python experiments/play.py rolling`.
+
+**Validation, stated plainly** (`python experiments/validate_rolling.py`, criteria fixed
+before running): the model reproduces the measured upstream-speed-versus-flow trend
+(monotone, near-linear, stopping at a flow of the right order, 0.74-0.90 mm/s against the
+paper's 1.2-1.3), but the first two checks pass largely because the slope was calibrated
+to the paper's plot, and the one independent check, the dependence of speed on swarm size,
+**fails** (ratio 1.21 against 2-6 expected). The model is consistent with one published
+experiment in its main trend; it is not validated against it.
+
+**Assumptions the paper does not give**, all documented: the controller's lateral
+command (a push across the vessel, an extension beyond the paper's fixed transducer),
+and the acoustic pull toward the wall (3.0, tuned so swarms stay attached at bends).
+
+**Results in this scenario:** preliminary only. The straight push scores about
+0.45 (15 swarms) and the other simple rules about zero; about 93% of the push's loss is
+bots that never arrive. No trained AI results exist yet for `rolling`, and none of the
+version 1-2 models or recordings carry over.
+
 ## How it works
 
 1. **Simulator.** Bots move by `own push x field + fluid flow + Brownian jitter`.
@@ -187,6 +213,7 @@ The human recordings used here are in `results/`.
 src/unison/
   arena.py       swappable shapes + flow (box, tube, rectangle Y-branch), pulsing flow, wall drag
   geometry.py    general vessel engine: tapered tubes, bifurcations, Murray's-law flow
+  rolling.py     version 3: finite-size swarms that roll along the wall, traction limit
   bots.py        bots with random traits
   simulator.py   one time step under one global field
   task.py        what counts as success (reach target, split)

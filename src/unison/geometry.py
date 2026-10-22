@@ -73,11 +73,16 @@ class VesselArena(Arena):
     flow_speed: centre-line speed in the root tube.
     flow_direction: -1 = toward the root (a bot starting at the root must swim
     upstream), +1 = away from the root.
+    bot_radius: bots have a finite size. The bot's centre cannot come closer to the
+    wall than this, so even a bot touching the wall feels some flow (as a real swarm
+    rolling on the wall does). 0 gives point bots.
     """
 
     def __init__(self, tubes: list[Tube], flow_speed: float = 0.6, flow_direction: int = -1,
-                 pulse_amp: float = 0.0, pulse_period: float = 4.0, wall_drag: float = 0.0):
+                 pulse_amp: float = 0.0, pulse_period: float = 4.0, wall_drag: float = 0.0,
+                 bot_radius: float = 0.0):
         self.tubes = list(tubes)
+        self.bot_radius = bot_radius
         self.flow_speed = flow_speed
         self.flow_direction = flow_direction
         self.pulse_amp = pulse_amp
@@ -115,6 +120,7 @@ class VesselArena(Arena):
 
     def contain(self, pos):
         t, closest, d, r = self._locate(pos)
+        r = np.maximum(r - self.bot_radius, 0.05)        # the centre stays a bot-radius from the wall
         sdf = d - r
         i = sdf.argmin(axis=0)
         n = np.arange(len(pos))
@@ -147,6 +153,37 @@ class VesselArena(Arena):
     def pulse_phase(self, t):
         return _phase(self.pulse_amp, self.pulse_period, t)
 
+    def local_frame(self, pos):
+        """Geometry around each bot, for physics that needs the wall (finite-size swarms).
+
+        Returns tube index, axis parameter, distance to the axis, local radius, the closest
+        axis point, the unit axis direction (root toward leaf), the unit lateral direction
+        (to the left of the axis) and the signed lateral offset from the axis.
+        """
+        t, closest, d, r = self._locate(pos)
+        i = (d / r).argmin(axis=0)
+        n = np.arange(len(pos))
+        tau = self._tan[i]
+        nu = np.column_stack([-tau[:, 1], tau[:, 0]])
+        c = closest[i, n]
+        e = ((pos - c) * nu).sum(axis=1)
+        return i, t[i, n], d[i, n], r[i, n], c, tau, nu, e
+
+    def contain_margin(self, pos, margin):
+        """Like contain(), but each bot's centre must stay `margin` (its radius) away from
+        the wall, so a finite-size swarm's edge never crosses it."""
+        t, closest, d, r = self._locate(pos)
+        rr = np.maximum(r - np.asarray(margin)[None, :], 0.02)
+        sdf = d - rr
+        i = sdf.argmin(axis=0)
+        n = np.arange(len(pos))
+        out = pos.copy()
+        outside = sdf[i, n] > 0.0
+        if outside.any():
+            c, dd, rad = closest[i, n][outside], d[i, n][outside], rr[i, n][outside]
+            out[outside] = c + (pos[outside] - c) * (rad / dd)[:, None]
+        return out
+
     # ---- helpers for tasks and drawing ----------------------------------------
     def branch_of(self, pos):
         """Branch index (0 = root branch) of the tube each bot is most central in."""
@@ -165,7 +202,8 @@ class VesselArena(Arena):
 
 
 def bifurcation(angle_deg: float = 35.0, flow_speed: float = 0.6, pulse_amp: float = 0.3,
-                pulse_period: float = 4.0, wall_drag: float = 0.6) -> VesselArena:
+                pulse_period: float = 4.0, wall_drag: float = 0.6,
+                bot_radius: float = 0.0) -> VesselArena:
     """A parent vessel splitting into two curved, tapering daughters.
 
     Each daughter leaves at +/- angle_deg from the parent's axis (so the full
@@ -190,4 +228,14 @@ def bifurcation(angle_deg: float = 35.0, flow_speed: float = 0.6, pulse_amp: flo
     upper = Branch([tuple(p) for p in ups], radii, parent=0)
     lower = Branch([tuple(p) for p in lows], radii, parent=0)
     return VesselArena(tubes_from_branches([root, upper, lower]), flow_speed=flow_speed,
-                       pulse_amp=pulse_amp, pulse_period=pulse_period, wall_drag=wall_drag)
+                       pulse_amp=pulse_amp, pulse_period=pulse_period, wall_drag=wall_drag,
+                       bot_radius=bot_radius)
+
+
+def straight_vessel(length: float = 40.0, radius: float = 1.0, flow_speed: float = 1.0,
+                    flow_direction: int = -1, pulse_amp: float = 0.0,
+                    pulse_period: float = 4.0) -> VesselArena:
+    """A single straight tube, used to test swarm physics in the simplest setting."""
+    tubes = tubes_from_branches([Branch([(0.0, 0.0), (length, 0.0)], [radius, radius])])
+    return VesselArena(tubes, flow_speed=flow_speed, flow_direction=flow_direction,
+                       pulse_amp=pulse_amp, pulse_period=pulse_period)

@@ -17,13 +17,11 @@ import argparse
 
 import numpy as np
 
-from unison.bots import make_bots
 from unison.controllers import PushTowardTarget
 from unison.evaluate import build_obs
 from unison.imitation import LearnedController
 from unison.policy import NumpyPolicy
 from unison.scenarios import SCENARIOS
-from unison.simulator import Simulator
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--model", default="results/es_split.npz", help="a .npz/.joblib model, or 'push'")
@@ -46,7 +44,7 @@ for seed in range(args.seed, args.seed + args.episodes):
     rng = np.random.default_rng(seed)
     arena = scenario.make_arena()
     task = scenario.make_task(arena)
-    sim = Simulator(arena, make_bots(rng, start_center=scenario.start_center), rng)
+    sim = scenario.new_sim(rng, arena)
     for i in range(scenario.steps):
         sim.step(ctrl.act(build_obs(task, sim, i / scenario.steps), rng))
     pos, speed = sim.pos, sim.bots.speed_factor

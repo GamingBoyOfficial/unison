@@ -197,3 +197,73 @@ def test_bifurcation_episode_runs_and_scores_between_0_and_1():
     from unison.scenarios import SCENARIOS
     score = run_episode(PushTowardTarget(), seed=4, scenario=SCENARIOS["bifurcation"](), steps=150)
     assert 0.0 <= score <= 1.0
+
+
+# ---- version 3: rolling swarms ------------------------------------------------------------
+
+def _rolling_bot(a, y=0.3, x=300.0):
+    from unison.bots import Bots
+    v0 = 1.6 * a / (a + 0.04)
+    return Bots(pos=np.array([[x, y]]), speed_factor=np.ones(1), radius=np.array([a]), v0=np.array([v0]))
+
+
+def test_contain_margin_keeps_swarm_edges_off_the_wall():
+    from unison.geometry import bifurcation
+    arena = bifurcation()
+    rng = np.random.default_rng(5)
+    lo_x, hi_x, lo_y, hi_y = arena.bounds
+    pts = np.column_stack([rng.uniform(lo_x, hi_x, 2000), rng.uniform(lo_y, hi_y, 2000)])
+    margin = np.full(2000, 0.3)
+    out = arena.contain_margin(pts, margin)
+    t, closest, d, r = arena._locate(out)
+    assert (d - np.maximum(r - 0.3, 0.02)).min(axis=0).max() <= 1e-9
+
+
+def test_rolling_upstream_speed_follows_v0_minus_kappa_times_local_flow():
+    from unison.geometry import straight_vessel
+    from unison.rolling import RollingSimulator
+    arena = straight_vessel(length=400.0, flow_speed=3.0)
+    sim = RollingSimulator(arena, _rolling_bot(0.27), np.random.default_rng(0), noise=0.0)
+    xs = []
+    for _ in range(200):
+        sim.step(np.array([1.0, 0.0]))
+        xs.append(sim.pos[0, 0])
+    measured = (xs[-1] - xs[-50]) / (49 * sim.dt)
+    u_local = np.linalg.norm(arena.flow_at(sim.pos, 0.0)[0])
+    expected = sim.bots.v0[0] - sim.kappa[0] * u_local
+    assert abs(measured - expected) < 0.03 * sim.bots.v0[0]
+    assert sim.grip()[0] > 0.99
+
+
+def test_rolling_swarm_is_swept_away_when_flow_exceeds_the_stalling_flow():
+    from unison.geometry import straight_vessel
+    from unison.rolling import RollingSimulator
+    arena = straight_vessel(length=400.0, flow_speed=16.0)
+    sim = RollingSimulator(arena, _rolling_bot(0.27), np.random.default_rng(0), noise=0.0)
+    x0 = None
+    for k in range(160):
+        sim.step(np.array([1.0, 0.0]))
+        if k == 60:
+            x0 = sim.pos[0, 0]
+    assert sim.pos[0, 0] < x0                      # carried downstream despite rolling forward
+
+
+def test_free_swarm_without_grip_is_carried_by_the_flow():
+    from unison.geometry import straight_vessel
+    from unison.rolling import RollingParams, RollingSimulator
+    arena = straight_vessel(length=400.0, flow_speed=2.0)
+    sim = RollingSimulator(arena, _rolling_bot(0.27, y=0.0), np.random.default_rng(0), noise=0.0,
+                           params=RollingParams(acoustic_drift=0.0))
+    x0 = sim.pos[0, 0]
+    for _ in range(40):
+        sim.step(np.zeros(2))
+    speed = (x0 - sim.pos[0, 0]) / (40 * sim.dt)
+    assert abs(speed - 2.0) < 0.05                 # moves at the centre-line flow speed
+
+
+def test_rolling_scenario_is_reproducible_and_scores_between_0_and_1():
+    from unison.scenarios import SCENARIOS
+    s = SCENARIOS["rolling"]()
+    a = run_episode(PushTowardTarget(), seed=9, scenario=s, steps=120)
+    b = run_episode(PushTowardTarget(), seed=9, scenario=s, steps=120)
+    assert a == b and 0.0 <= a <= 1.0

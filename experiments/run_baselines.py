@@ -43,7 +43,7 @@ for name, ctrl in [("Random", RandomController()),
     row(name, evaluate(ctrl, tube, n_episodes=50))
 
 # ---- Phase 3: Y-branch split, two time budgets -------------------------------
-for key in ("split", "split_long", "bifurcation"):
+for key in ("split", "split_long", "bifurcation", "rolling"):
     sc = SCENARIOS[key]()
     print(f"\nTuning the switch moment for '{key}' on separate swarms ...", flush=True)
     p = tune_switch(sc)

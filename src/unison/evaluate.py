@@ -6,27 +6,25 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .bots import make_bots
 from .controllers import Controller
 from .scenarios import Scenario
-from .simulator import Simulator
 
 
-def build_obs(task, sim: Simulator, progress: float) -> np.ndarray:
+
+def build_obs(task, sim, progress: float) -> np.ndarray:
     """Task summary + [progress, sin(heartbeat), cos(heartbeat)]."""
     s, c = sim.arena.pulse_phase(sim.t)
     return np.concatenate([task.observe(sim.pos), [progress, s, c]])
 
 
 def run_episode(controller: Controller, seed: int, scenario: Scenario,
-                n_bots: int = 300, spread: float = 0.15, noise: float = 0.02,
+                n_bots: int = 300, spread: float = 0.15, noise: float | None = None,
                 steps: int | None = None) -> float:
     """One episode on a freshly randomized swarm. Returns the score (0 to 1)."""
     rng = np.random.default_rng(seed)
     arena = scenario.make_arena()
     task = scenario.make_task(arena)
-    bots = make_bots(rng, n=n_bots, spread=spread, start_center=scenario.start_center)
-    sim = Simulator(arena, bots, rng, noise=noise)
+    sim = scenario.new_sim(rng, arena, n_bots=n_bots, spread=spread, noise=noise)
     steps = steps or scenario.steps
     for i in range(steps):
         field = controller.act(build_obs(task, sim, i / steps), rng)

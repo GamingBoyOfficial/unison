@@ -28,3 +28,5 @@ jobs:
         run: python -m pytest -q
       - name: Smoke test (end-to-end simulation script)
         run: python experiments/diagnose_loss.py --model push --scenario bifurcation --episodes 3
+      - name: Rolling-swarm validation script runs
+        run: python experiments/validate_rolling.py
