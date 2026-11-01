@@ -40,8 +40,11 @@ class PushTowardTarget(Controller):
 class WallHugging(Controller):
     """Pushes diagonally up-right, so bots slide up onto the top wall."""
 
+    def __init__(self, drive: float = 0.7, wall: float = 0.7):
+        self.drive, self.wall = drive, wall
+
     def act(self, obs, rng):
-        return np.array([0.7, 0.7])
+        return np.array([self.drive, self.wall])
 
 
 class SwitchController(Controller):
@@ -53,10 +56,11 @@ class SwitchController(Controller):
     using nothing but timing.
     """
 
-    def __init__(self, switch_at: float = 0.5):
+    def __init__(self, switch_at: float = 0.5, drive: float = 0.7, wall: float = 0.7):
         self.switch_at = switch_at
+        self.drive, self.wall = drive, wall
 
     def act(self, obs, rng):
         up = obs[PROGRESS] < self.switch_at
-        return np.array([0.7, 0.7 if up else -0.7])
+        return np.array([self.drive, self.wall if up else -self.wall])
 

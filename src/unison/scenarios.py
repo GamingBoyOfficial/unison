@@ -76,12 +76,14 @@ def bifurcation_scenario(steps: int = 800, name: str = "bifurcation") -> Scenari
     )
 
 
-def rolling_scenario(steps: int = 800, name: str = "rolling", flow_speed: float = 5.0,
+def rolling_scenario(steps: int = 800, name: str = "rolling", flow_speed: float = 6.0,
                      params: RollingParams | None = None) -> Scenario:
     """Version 3: finite-size swarms that roll along the walls of a bifurcation, in the
-    flow regime of the experiments (centre-line flow 0.5 mm/s with pulsing), with grip
-    limited by traction. Physics from docs/GROUNDING.md; the field's lateral component
-    (which wall to press against) is an assumption beyond the paper's hardware."""
+    flow regime of the experiments (centre-line flow 0.6 mm/s with pulsing), with grip
+    limited by traction. The flow strength was chosen so the straight push scores about
+    0.6, leaving room to improve; it is not a measured physiological value. Physics from
+    docs/GROUNDING.md; the field's lateral component (which wall to press against) is an
+    assumption beyond the paper's hardware."""
     return Scenario(
         name=name,
         make_arena=lambda: bifurcation(flow_speed=flow_speed, wall_drag=0.0),

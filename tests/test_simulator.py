@@ -267,3 +267,71 @@ def test_rolling_scenario_is_reproducible_and_scores_between_0_and_1():
     a = run_episode(PushTowardTarget(), seed=9, scenario=s, steps=120)
     b = run_episode(PushTowardTarget(), seed=9, scenario=s, steps=120)
     assert a == b and 0.0 <= a <= 1.0
+
+
+def test_large_swarms_get_through_the_junction_without_jamming():
+    """Regression: wall direction once came from the wrong tube at the bifurcation, pinning
+    big swarms against the parent's end cap even though they were gripping the wall."""
+    from unison.bots import Bots
+    from unison.geometry import bifurcation
+    from unison.rolling import RollingSimulator
+    arena = bifurcation(flow_speed=3.0, wall_drag=0.0)
+    n, a = 10, 0.45
+    pos = np.column_stack([np.full(n, 4.5), np.where(np.arange(n) % 2 == 0, 0.5, -0.5)])
+    bots = Bots(pos=pos, speed_factor=np.ones(n), radius=np.full(n, a), v0=np.full(n, 1.6 * a / (a + 0.04)))
+    sim = RollingSimulator(arena, bots, np.random.default_rng(0), noise=0.0)
+    for _ in range(400):
+        sim.step(np.array([1.0, 0.0]))
+    assert np.mean(sim.pos[:, 0] > 8.0) >= 0.8
+
+
+def test_up_key_moves_a_swarm_from_the_lower_wall_to_the_upper_wall():
+    from unison.geometry import straight_vessel
+    from unison.rolling import RollingSimulator
+    arena = straight_vessel(length=400.0, flow_speed=2.0)
+    sim = RollingSimulator(arena, _rolling_bot(0.27, y=-0.6), np.random.default_rng(0), noise=0.0)
+    for _ in range(60):
+        sim.step(np.array([0.0, 0.0]))
+    assert sim.pos[0, 1] < -0.5                     # held on the lower wall by the acoustic pull
+    for _ in range(60):
+        sim.step(np.array([0.0, 1.0]))
+    assert sim.pos[0, 1] > 0.5                      # pressing up carried it across to the upper wall
+
+
+def test_wall_selection_does_not_change_the_rolling_speed():
+    from unison.geometry import straight_vessel
+    from unison.rolling import RollingSimulator
+
+    def speed(field):
+        arena = straight_vessel(length=400.0, flow_speed=3.0)
+        sim = RollingSimulator(arena, _rolling_bot(0.27, y=0.6), np.random.default_rng(0), noise=0.0)
+        xs = []
+        for _ in range(150):
+            sim.step(np.array(field))
+            xs.append(sim.pos[0, 0])
+        return (xs[-1] - xs[-50]) / (49 * sim.dt)
+
+    assert abs(speed([1.0, 0.0]) - speed([1.0, 1.0])) < 1e-6
+
+
+def test_straight_push_keeps_swarms_on_the_outer_wall_of_an_angled_daughter():
+    from unison.bots import Bots
+    from unison.geometry import bifurcation
+    from unison.rolling import RollingSimulator
+    arena = bifurcation(flow_speed=3.0, wall_drag=0.0)
+    a = 0.27
+    pos = np.array([[8.6, 1.9]])                    # outer (upper-left) side of the upper daughter
+    bots = Bots(pos=pos, speed_factor=np.ones(1), radius=np.array([a]), v0=np.array([1.6 * a / (a + 0.04)]))
+    sim = RollingSimulator(arena, bots, np.random.default_rng(0), noise=0.0)
+    for _ in range(80):
+        sim.step(np.array([1.0, 0.0]))
+    _, _, _, _, _, _, e = arena.wall_frame(sim.pos, sim._margin)
+    assert e[0] > 0.0                               # still on the left (outer) side, not pushed inward
+
+
+def test_constant_policy_behaves_like_the_straight_push():
+    from unison.policy import NumpyPolicy
+    pol = NumpyPolicy.constant((1.0, 0.0), box=True)
+    f = pol.act(np.linspace(-3, 3, 12), None)
+    assert abs(f[0] - 1.0) < 0.5 and abs(f[1]) < 0.5
+    assert pol.n_params == sum(i * o + o for i, o in pol.shapes)

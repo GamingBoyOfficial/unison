@@ -169,6 +169,26 @@ class VesselArena(Arena):
         e = ((pos - c) * nu).sum(axis=1)
         return i, t[i, n], d[i, n], r[i, n], c, tau, nu, e
 
+    def wall_frame(self, pos, margin):
+        """Geometry of the wall that is actually constraining each finite-size swarm.
+
+        Picks the tube whose margin-shrunk wall the swarm centre is closest to (the same
+        rule contain_margin() uses), so the wall direction computed from it is tangent to
+        the boundary the swarm is pressed against, even where tubes overlap at a junction.
+        Returns tube index, distance to that tube's axis, its local radius, the closest
+        axis point, the unit axis direction, the unit lateral direction and the signed
+        lateral offset.
+        """
+        t, closest, d, r = self._locate(pos)
+        rr = np.maximum(r - np.asarray(margin)[None, :], 0.02)
+        i = (d - rr).argmin(axis=0)
+        n = np.arange(len(pos))
+        tau = self._tan[i]
+        nu = np.column_stack([-tau[:, 1], tau[:, 0]])
+        c = closest[i, n]
+        e = ((pos - c) * nu).sum(axis=1)
+        return i, d[i, n], r[i, n], c, tau, nu, e
+
     def contain_margin(self, pos, margin):
         """Like contain(), but each bot's centre must stay `margin` (its radius) away from
         the wall, so a finite-size swarm's edge never crosses it."""

@@ -26,8 +26,9 @@ def header(title, note):
 
 def tune_switch(scenario):
     best_p, best = None, -1.0
+    mag = 1.0 if scenario.kind == "rolling" else 0.7
     for p in [0.1, 0.2, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6]:
-        s = evaluate(SwitchController(p), scenario, n_episodes=8, base_seed=0).mean
+        s = evaluate(SwitchController(p, mag, mag), scenario, n_episodes=8, base_seed=0).mean
         if s > best:
             best_p, best = p, s
     return best_p
@@ -47,13 +48,14 @@ for key in ("split", "split_long", "bifurcation", "rolling"):
     sc = SCENARIOS[key]()
     print(f"\nTuning the switch moment for '{key}' on separate swarms ...", flush=True)
     p = tune_switch(sc)
+    mag = 1.0 if sc.kind == "rolling" else 0.7
     header(f"SPLIT ({sc.steps} steps): deliver half the swarm to each arm of a Y-branch",
            "Score = 2 x min(upper fraction, lower fraction); 1.0 is a perfect split\n"
            "with every bot delivered (30 random swarms each, pulsing flow, sticky walls).")
     for name, ctrl in [("Random", RandomController()),
                        ("Push toward target", PushTowardTarget()),
-                       ("Wall-hugging", WallHugging()),
-                       (f"Switch (tuned, {p})", SwitchController(p))]:
+                       ("Wall-hugging", WallHugging(mag, mag)),
+                       (f"Switch (tuned, {p})", SwitchController(p, mag, mag))]:
         row(name, evaluate(ctrl, sc, n_episodes=30))
 
 print("\nA learned controller has to beat the best row in each table.")

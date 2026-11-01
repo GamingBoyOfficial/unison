@@ -37,7 +37,9 @@ class RollingParams:
     contact_soft: float = 0.10     # further gap over which grip fades to zero
     traction_margin: float = 1.1   # grip is lost beyond this multiple of the stalling flow
     traction_soft: float = 0.05    # softness of that cutoff (fraction of the stalling flow)
-    lateral_speed: float = 3.0     # speed of the controller's lateral push (assumed)
+    lateral_speed: float = 6.0     # strength of the up/down wall-selection push (assumed);
+                                   # must exceed acoustic_drift or it cannot move a swarm
+                                   # off the wall it is pressed against
     acoustic_drift: float = 3.0    # always-on pull toward the nearest wall (assumed; see below)
     wall_gap_min: float = 0.02     # closest the swarm edge can get to the wall
 
@@ -45,9 +47,13 @@ class RollingParams:
 class RollingSimulator:
     """Moves finite-size rolling swarms under ONE global field.
 
-    The field f = (fx, fy) acts in two ways: its component along the local WALL drives
-    rolling (only effective in wall contact), and its component across the vessel axis
-    pushes the swarm sideways, which lets the controller choose which wall to press against.
+    The field f = (fx, fy), each component in [-1, 1] (rolling drive and wall selection come
+    from separate actuators, so they do not share one length budget), acts in two ways: fx
+    drives rolling along the wall at full speed in either direction (only effective in wall
+    contact), and its vertical component fy pushes the
+    swarm toward the vessel's upper wall (fy > 0) or lower wall (fy < 0), which lets the
+    controller choose which wall to press against. A pure push along +x has no sideways
+    effect, in the angled daughters as well.
     """
 
     def __init__(self, arena: VesselArena, bots: Bots, rng: np.random.Generator,
@@ -70,7 +76,7 @@ class RollingSimulator:
     def grip(self, pos=None):
         """How firmly each swarm is rolling on the wall (0 = free in the fluid, 1 = full grip)."""
         pos = self.bots.pos if pos is None else pos
-        i, _, d, r, _, tau, _, _ = self.arena.local_frame(pos)
+        _, d, r, _, _, _, _ = self.arena.wall_frame(pos, self._margin)
         gap = r - d - self.bots.radius
         p = self.p
         contact = np.clip(1.0 - (gap - p.contact_gap) / p.contact_soft, 0.0, 1.0)
@@ -81,9 +87,9 @@ class RollingSimulator:
         return contact * traction
 
     def step(self, field: np.ndarray) -> None:
-        f = np.asarray(field, dtype=float)
+        f = np.clip(np.asarray(field, dtype=float), -1.0, 1.0)   # two independent actuators
         p, pos, b = self.p, self.bots.pos, self.bots
-        i, _, d, r, c, tau, nu, e = self.arena.local_frame(pos)
+        _, d, r, c, _, nu, e = self.arena.wall_frame(pos, self._margin)
         flow = self.arena.flow_at(pos, self.t)
         gap = r - d - b.radius
         contact = np.clip(1.0 - (gap - p.contact_gap) / p.contact_soft, 0.0, 1.0)
@@ -92,14 +98,22 @@ class RollingSimulator:
         traction = 1.0 / (1.0 + np.exp((u_ax - p.traction_margin * u_stop) / (p.traction_soft * u_stop)))
         w = contact * traction
 
-        f_lat = nu @ f                                   # push across the vessel
         wall_n = (pos - c) / np.maximum(d, 1e-9)[:, None]   # from the axis toward the wall
-        along_wall = f[None, :] - (wall_n @ f)[:, None] * wall_n   # field's part along the wall
-        v_roll = (w * b.v0)[:, None] * along_wall        # rolling follows the wall's own direction
+        tangent = np.column_stack([-wall_n[:, 1], wall_n[:, 0]])   # along the wall
+        tangent = np.where((tangent[:, 0] < 0)[:, None], -tangent, tangent)   # oriented toward +x
+        v_roll = (w * b.v0 * f[0])[:, None] * tangent    # rolling drive: fx, at full speed along the wall
         v_flow = (1.0 - w * (1.0 - self.kappa))[:, None] * flow
         drift = p.acoustic_drift * np.tanh(e / 0.05)     # toward the nearest wall
-        v_lat = (p.lateral_speed * f_lat + drift)[:, None] * nu
+        # up/down on the field selects the wall: +y presses toward the vessel's upper (left) wall
+        v_lat = (p.lateral_speed * f[1] + drift)[:, None] * nu
+        # a sideways push into the wall is absorbed by the wall entirely (no leftover sliding)
+        pushing_in = (gap <= p.contact_gap) & ((v_lat * wall_n).sum(axis=1) > 0.0)
+        v_lat = np.where(pushing_in[:, None], 0.0, v_lat)
         vel = v_roll + v_flow + v_lat
+        # the wall's reaction: a swarm touching the wall cannot move further into it, and that
+        # outward push must not disturb its motion along the wall
+        v_out = (vel * wall_n).sum(axis=1)
+        vel = vel - np.where((gap <= p.contact_gap) & (v_out > 0.0), v_out, 0.0)[:, None] * wall_n
         jitter = self.rng.normal(0.0, self.noise, pos.shape)
         self.bots.pos = self.arena.contain_margin(pos + vel * self.dt + jitter, self._margin)
         self.t += self.dt

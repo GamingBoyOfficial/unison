@@ -10,9 +10,10 @@ Run:
   python experiments/train_es.py --generations 100 --workers 8
   python experiments/train_es.py --scenario bifurcation --seed 1   # an independent run
 
-Start from the copied model (results/imitation_split.joblib) or from any practiced
-model (.npz), for example to adapt a model to a new scenario:
+Start from the copied model (results/imitation_split.joblib), from any practiced model
+(.npz), or from the straight push (--model push), which cannot do worse than the push:
   python experiments/train_es.py --model results/es_split.npz --scenario bifurcation
+  python experiments/train_es.py --model push --scenario rolling
 """
 
 import argparse
@@ -35,8 +36,8 @@ VAL_SEED = 50000     # swarms used to pick the best model
 
 def score_task(task):
     """Worker: mean score of one candidate on a list of swarms."""
-    arrays, params, scenario_name, seeds = task
-    policy = NumpyPolicy(*arrays, params)
+    arrays, params, scenario_name, seeds, box = task
+    policy = NumpyPolicy(*arrays, params, box=box)
     scenario = SCENARIOS[scenario_name]()
     return float(np.mean([run_episode(policy, s, scenario) for s in seeds]))
 
@@ -58,10 +59,14 @@ def main():
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    if args.model.endswith(".npz"):
+    if args.model == "push":
+        base = NumpyPolicy.constant((1.0, 0.0))           # start from the straight push
+    elif args.model.endswith(".npz"):
         base = NumpyPolicy.load(args.model)               # start from an already-practiced model
     else:
         base = NumpyPolicy.from_sklearn(joblib.load(args.model))
+    box = SCENARIOS[args.scenario]().kind == "rolling"
+    base.box = box
     arrays = (base.mean, base.scale, base.shapes)
     suffix = "" if args.seed == 0 else f"_seed{args.seed}"
     out = Path(args.out or f"results/es_{args.scenario}{suffix}.npz")
@@ -74,7 +79,7 @@ def main():
     with mp.get_context("spawn").Pool(args.workers) as pool:
         def run(thetas, seeds):
             return np.array(pool.map(
-                score_task, [(arrays, t, args.scenario, seeds) for t in thetas]))
+                score_task, [(arrays, t, args.scenario, seeds, box) for t in thetas]))
 
         start_val = run([theta], val_seeds)[0]
         best_val, best_theta = start_val, theta.copy()

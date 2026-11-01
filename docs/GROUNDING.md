@@ -145,18 +145,52 @@ micrometres/s, time 1 = about 0.75 s.
 - **Traction limit.** When the local flow exceeds about 1.1 times the flow at which
   rolling stalls, grip is lost and the swarm is swept away.
 - The unsupported "sticky wall" drag is removed in this scenario.
-- Flow regime: centre-line 0.5 mm/s (within the paper's 0.2-1.2 mm/s), pulsing +/-30%.
+- Flow regime: centre-line 0.6 mm/s (within the paper's 0.2-1.2 mm/s), pulsing +/-30%. The
+  value was chosen so the straight push scores about 0.6 (benchmark headroom), not measured.
 
 **Assumptions in this version that the paper does not give** (all tunable, none
 measured here):
-- The controller's *lateral* command (a push across the vessel, letting it choose which
-  wall to press against). The paper's acoustic transducer is fixed; this is an extension.
+- The controller's *wall-selection* command (up/down presses swarms toward the upper or
+  lower wall; strength 6.0, which must exceed the acoustic pull of 3.0 or it cannot move a
+  swarm off the wall it is pressed against). The paper's acoustic transducer is fixed; this
+  is an extension. Rolling drive (right/left) and wall selection are treated as separate
+  actuators, each limited to [-1, 1], not sharing one length budget.
+- The wall absorbs any push directed into it (a swarm touching the wall cannot move
+  further into it), which also keeps wall pushes from sliding swarms along the wall.
 - The always-on acoustic pull toward the nearest wall, set to 3.0 (about 300 micrometres/s).
-  It was **tuned**: at 1.0, swarms detached where the wall bends away at the bifurcation
-  and the flow flushed them back; 3.0 held them; 6.0 pinned them too strongly. The paper
+  It was **tuned**: at 1.0 every swarm is flushed out (all controllers score zero, also
+  after a junction bug was fixed); 3.0 holds them; 6.0 over-pins them. The paper
   says the acoustic force presses the swarm to the wall but its text read gives no value.
 - Contact range, the spread in magnetic response (15%), the swarm-size spread, the
   pulsing waveform, and the jitter (0.01).
+
+**Further fixes after hand play.** The wall-selection push once equalled the acoustic pull
+(up/down could not move a swarm off its wall); drive and wall selection once shared one
+unit-length budget (steering stalled swarms); and a sideways push into the wall left a
+tangential residue near tube joints that pushed swarms backward. All fixed; regression
+tests cover the main ones.
+
+**Bug found and fixed (after first release of version 3).** The wall direction used for
+rolling came from the tube the swarm was nearest to, not from the boundary actually
+constraining it. At the bifurcation this pinned larger swarms against the parent's end cap
+while they were still "gripping": delivery for swarms over 22 micrometres radius was
+15% or less, against about 70% for small ones. Using the constraining boundary raised
+overall delivery under a straight push from 50% to 88%. Version 3 results measured
+before the fix are superseded. A regression test covers it.
+
+## What the grounded physics implies for the control problem
+
+Measured with `experiments/analyze_delivery.py` in the `rolling` scenario (straight push,
+12-20 swarms): a perfect split of the delivered swarms would add at most 0.034 to the
+score; swarms below about 15 micrometres cannot hold the wall at the systolic flow peak
+(stalling flow 2-3 against about 5.4), so only 21-41% of them are delivered, against 84%
+for swarms over 30 micrometres; doubling the time budget raises delivery only from 0.63 to
+0.71. A trained controller (started from a version-2 model, one run) scored 0.321 against
+0.586 for the push. Conclusion: in this regime the loss is dominated by physics, not by the
+controller, and a learned controller has little to gain. This is a result of the
+modelling assumptions above (notably the flow strength, which was set for benchmark
+difficulty, and the always-on acoustic pull), so it should be read as "in this model", not
+as a statement about real swarms.
 
 ## Validation result (script: `experiments/validate_rolling.py`)
 

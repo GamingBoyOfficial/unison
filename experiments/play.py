@@ -140,6 +140,8 @@ def main():
 
     make_discs()
     if state["sim"].bots.radius is not None:
+        fig.text(0.5, 0.085, "Right/Left: roll along the wall.  Up/Down: press toward the upper/lower "
+                 "wall.  Hold two keys at once.", ha="center", color="#8b93a1")
         fig.text(0.5, 0.05, "Circles show the real swarm size.  White outline = rolling on the wall,  "
                  "orange = carried by the flow.", ha="center", color="#8b93a1")
     fig.text(0.5, 0.015, "Arrows/WASD: steer    C: change driver    R: new episode    Q: quit",
@@ -149,6 +151,8 @@ def main():
         f = np.zeros(2)
         for k in state["held"]:
             f += KEY_DIRS[k]
+        if scenario.kind == "rolling":          # drive and wall selection are separate actuators
+            return np.clip(f, -1.0, 1.0)
         n = np.linalg.norm(f)
         return f / n if n > 0 else f
 
