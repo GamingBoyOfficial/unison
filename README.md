@@ -2,6 +2,9 @@
 
 ![CI](https://github.com/GamingBoyOfficial/unison/actions/workflows/ci.yml/badge.svg)
 
+**[Live 3D demo](https://gamingboyofficial.github.io/unison/)**: a replay of one simulated run, the straight push
+and the trained controller on the same swarm. (The physics is 2D; the 3D look is a rendering.)
+
 **Learning to steer imperfect microrobot swarms with one global field.**
 
 Real microrobots have no batteries. They are powered and steered from outside the body, so
